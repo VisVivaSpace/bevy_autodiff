@@ -8,10 +8,10 @@ repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
 
 [dependencies]
 bevy_ecs = "0.15"
-bevy_entity_ptr = { path = "../bevy_entity_ptr" }
+bevy_entity_ptr = "0.1.0"
 smallvec = "1.11"
 thiserror = "1.0"
-bevy_autodiff-macros = { path = "./bevy_autodiff-macros", optional = true }
+bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
 
 [features]
 default = []
