@@ -1,0 +1,42 @@
+[package]
+name = "vvad"
+version = "0.1.0"
+edition = "2021"
+description = "Taylor-mode automatic differentiation using Bevy ECS"
+license = "MIT"
+
+[dependencies]
+bevy_ecs = "0.15"
+bevy_entity_ptr = { path = "../bevy_entity_ptr" }
+smallvec = "1.11"
+thiserror = "1.0"
+vvad-macros = { path = "./vvad-macros", optional = true }
+
+[features]
+default = []
+std_autodiff_tests = []
+proc-macros = ["vvad-macros"]
+
+[dev-dependencies]
+approx = "0.5"
+autodiff = "0.7"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "gradient"
+path = "examples/gradient.rs"
+
+[[example]]
+name = "hessian"
+path = "examples/hessian.rs"
+
+[[example]]
+name = "rosenbrock"
+path = "examples/rosenbrock.rs"
+
+[[example]]
+name = "orbital_mechanics"
+path = "examples/orbital_mechanics.rs"
