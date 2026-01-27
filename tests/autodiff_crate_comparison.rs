@@ -1,6 +1,6 @@
 //! Comparison tests against the `autodiff` crate (elrnv/autodiff)
 //!
-//! This module validates vvad's first-order derivatives against the `autodiff` crate,
+//! This module validates bevy_autodiff's first-order derivatives against the `autodiff` crate,
 //! which provides forward-mode automatic differentiation. Both implementations should
 //! produce identical derivatives for the same mathematical functions.
 //!
@@ -14,7 +14,7 @@ use approx::assert_relative_eq;
 use autodiff::diff;
 use autodiff::Float;
 use autodiff::FT;
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 /// Helper type alias for clearer code
 type Dual = FT<f64>;
@@ -36,14 +36,14 @@ fn test_sin_derivative() {
         // autodiff crate reference
         let deriv_autodiff = diff(|t: FT<f64>| t.sin(), x);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sin(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -61,10 +61,10 @@ fn test_cos_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.cos(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -83,10 +83,10 @@ fn test_tan_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.tan(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -109,10 +109,10 @@ fn test_asin_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.asin(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -131,10 +131,10 @@ fn test_acos_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.acos(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -153,10 +153,10 @@ fn test_atan_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.atan(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -178,10 +178,10 @@ fn test_sinh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sinh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -199,10 +199,10 @@ fn test_cosh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.cosh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -220,10 +220,10 @@ fn test_tanh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.tanh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -246,10 +246,10 @@ fn test_asinh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.asinh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -268,10 +268,10 @@ fn test_acosh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.acosh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -290,10 +290,10 @@ fn test_atanh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.atanh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -315,10 +315,10 @@ fn test_exp_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.exp(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -337,10 +337,10 @@ fn test_ln_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.ln(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -359,10 +359,10 @@ fn test_sqrt_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sqrt(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -385,10 +385,10 @@ fn test_sin_of_exp() {
         let xv = ad.var(x);
         let exp_x = ad.exp(xv);
         let f = ad.sin(exp_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -407,10 +407,10 @@ fn test_exp_of_sin() {
         let xv = ad.var(x);
         let sin_x = ad.sin(xv);
         let f = ad.exp(sin_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -435,10 +435,10 @@ fn test_sqrt_of_one_plus_x_squared() {
         let x_sq = ad.mul(xv, xv);
         let sum = ad.add(one, x_sq);
         let f = ad.sqrt(sum);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -457,10 +457,10 @@ fn test_atan_of_exp() {
         let xv = ad.var(x);
         let exp_x = ad.exp(xv);
         let f = ad.atan(exp_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -479,10 +479,10 @@ fn test_tanh_of_sin() {
         let xv = ad.var(x);
         let sin_x = ad.sin(xv);
         let f = ad.tanh(sin_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -522,10 +522,10 @@ fn test_polynomial() {
         let t2 = ad.add(t1, three_x);
         let f = ad.sub(t2, four);
 
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -550,10 +550,10 @@ fn test_division() {
         let x_sq = ad.mul(xv, xv);
         let denom = ad.add(one, x_sq);
         let f = ad.div(one, denom);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -574,10 +574,10 @@ fn test_quotient() {
         let sin_x = ad.sin(xv);
         let cos_x = ad.cos(xv);
         let f = ad.div(sin_x, cos_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-10,
             max_relative = 1e-10
@@ -601,10 +601,10 @@ fn test_power_function() {
         let xv = ad.var(x);
         let exp = ad.constant(2.5);
         let f = ad.pow(xv, exp);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_autodiff,
             epsilon = 1e-9,
             max_relative = 1e-9

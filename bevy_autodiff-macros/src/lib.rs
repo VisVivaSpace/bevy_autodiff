@@ -1,13 +1,13 @@
-//! Procedural macros for vvad automatic differentiation.
+//! Procedural macros for bevy_autodiff automatic differentiation.
 //!
 //! This crate provides the `#[autodiff]` attribute macro that transforms
-//! functions to work with the vvad autodiff system.
+//! functions to work with the bevy_autodiff autodiff system.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use vvad::Var;
-//! use vvad_macros::autodiff;
+//! use bevy_autodiff::Var;
+//! use bevy_autodiff_macros::autodiff;
 //!
 //! #[autodiff]
 //! fn quadratic(x: Var) -> Var {
@@ -44,8 +44,8 @@ use syn::{
 /// # Example
 ///
 /// ```ignore
-/// use vvad::{AutoDiff, Var};
-/// use vvad_macros::autodiff;
+/// use bevy_autodiff::{AutoDiff, Var};
+/// use bevy_autodiff_macros::autodiff;
 ///
 /// #[autodiff]
 /// fn rosenbrock(x: Var, y: Var) -> Var {
@@ -312,5 +312,5 @@ impl VisitMut for ExprTransformer {
 #[cfg(test)]
 mod tests {
     // Proc-macro crates can't have unit tests that use the macro directly
-    // Tests are in the main vvad crate
+    // Tests are in the main bevy_autodiff crate
 }

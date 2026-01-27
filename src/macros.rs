@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use vvad::{AutoDiff, expr};
+//! use bevy_autodiff::{AutoDiff, expr};
 //!
 //! let mut ad = AutoDiff::new();
 //! let x = ad.var(2.0);
@@ -53,7 +53,7 @@
 ///
 /// ## Simple Arithmetic
 /// ```
-/// use vvad::{AutoDiff, expr};
+/// use bevy_autodiff::{AutoDiff, expr};
 ///
 /// let mut ad = AutoDiff::new();
 /// let x = ad.var(2.0);
@@ -68,7 +68,7 @@
 ///
 /// ## With Literals
 /// ```
-/// use vvad::{AutoDiff, expr};
+/// use bevy_autodiff::{AutoDiff, expr};
 ///
 /// let mut ad = AutoDiff::new();
 /// let x = ad.var(2.0);
@@ -79,7 +79,7 @@
 ///
 /// ## Transcendental Functions
 /// ```
-/// use vvad::{AutoDiff, expr};
+/// use bevy_autodiff::{AutoDiff, expr};
 ///
 /// let mut ad = AutoDiff::new();
 /// let x = ad.var(0.0);
@@ -90,7 +90,7 @@
 ///
 /// ## Complex Expressions
 /// ```
-/// use vvad::{AutoDiff, expr};
+/// use bevy_autodiff::{AutoDiff, expr};
 ///
 /// let mut ad = AutoDiff::new();
 /// let x = ad.var(1.0);

@@ -24,8 +24,8 @@ use super::{mul_taylor, scale_taylor};
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::rules::power::pow_taylor;
-/// use vvad::taylor::polynomial::identity_taylor;
+/// use bevy_autodiff::taylor::rules::power::pow_taylor;
+/// use bevy_autodiff::taylor::polynomial::identity_taylor;
 /// use approx::assert_relative_eq;
 ///
 /// // Compute (2)^(3) = 8 (constant case)

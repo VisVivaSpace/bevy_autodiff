@@ -8,8 +8,8 @@
 //! # Usage
 //!
 //! ```
-//! use vvad::AutoDiff;
-//! use vvad::ops::with_context;
+//! use bevy_autodiff::AutoDiff;
+//! use bevy_autodiff::ops::with_context;
 //!
 //! let mut ad = AutoDiff::new();
 //! let x = ad.var(2.0);
@@ -71,8 +71,8 @@ thread_local! {
 /// # Example
 ///
 /// ```
-/// use vvad::AutoDiff;
-/// use vvad::ops::with_context;
+/// use bevy_autodiff::AutoDiff;
+/// use bevy_autodiff::ops::with_context;
 ///
 /// let mut ad = AutoDiff::new();
 /// let x = ad.var(2.0);

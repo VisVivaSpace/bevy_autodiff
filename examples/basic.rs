@@ -1,10 +1,10 @@
-//! Basic vvad usage example
+//! Basic bevy_autodiff usage example
 //!
 //! Demonstrates variable creation, arithmetic operations, and derivative computation.
 //!
 //! Run with: cargo run --example basic
 
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 fn main() {
     let mut ad = AutoDiff::new();

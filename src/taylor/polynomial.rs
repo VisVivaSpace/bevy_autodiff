@@ -37,7 +37,7 @@ pub type TaylorCoeffs = SmallVec<[f64; 8]>;
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::add_taylor;
+/// use bevy_autodiff::taylor::add_taylor;
 /// let u = vec![1.0, 2.0, 3.0];
 /// let v = vec![4.0, 5.0, 6.0];
 /// let y = add_taylor(&u, &v, 2);
@@ -60,7 +60,7 @@ pub fn add_taylor(u: &[f64], v: &[f64], order: usize) -> TaylorCoeffs {
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::sub_taylor;
+/// use bevy_autodiff::taylor::sub_taylor;
 /// let u = vec![5.0, 7.0, 9.0];
 /// let v = vec![4.0, 5.0, 6.0];
 /// let y = sub_taylor(&u, &v, 2);
@@ -98,7 +98,7 @@ pub fn neg_taylor(u: &[f64], order: usize) -> TaylorCoeffs {
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::mul_taylor;
+/// use bevy_autodiff::taylor::mul_taylor;
 /// // (1 + 2t) * (1 + 3t) = 1 + 5t + 6t²
 /// let u = vec![1.0, 2.0];  // 1 + 2t
 /// let v = vec![1.0, 3.0];  // 1 + 3t
@@ -133,7 +133,7 @@ pub fn mul_taylor(u: &[f64], v: &[f64], order: usize) -> TaylorCoeffs {
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::div_taylor;
+/// use bevy_autodiff::taylor::div_taylor;
 /// // (1 + 2t) / (1 + t) at order 2
 /// // Let's verify: (1 + t)(y₀ + y₁t + y₂t²) = 1 + 2t
 /// // y₀ = 1, y₁ + y₀ = 2 → y₁ = 1, y₂ + y₁ = 0 → y₂ = -1

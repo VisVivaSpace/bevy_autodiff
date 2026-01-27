@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run --example orbital_mechanics
 
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 fn main() {
     // Gravitational parameter (km^3/s^2) - Earth

@@ -1,21 +1,22 @@
 [package]
-name = "vvad"
+name = "bevy_autodiff"
 version = "0.1.0"
 edition = "2021"
 description = "Taylor-mode automatic differentiation using Bevy ECS"
 license = "MIT"
+repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
 
 [dependencies]
 bevy_ecs = "0.15"
 bevy_entity_ptr = { path = "../bevy_entity_ptr" }
 smallvec = "1.11"
 thiserror = "1.0"
-vvad-macros = { path = "./vvad-macros", optional = true }
+bevy_autodiff-macros = { path = "./bevy_autodiff-macros", optional = true }
 
 [features]
 default = []
 std_autodiff_tests = []
-proc-macros = ["vvad-macros"]
+proc-macros = ["bevy_autodiff-macros"]
 
 [dev-dependencies]
 approx = "0.5"

@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo run --example rosenbrock
 
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 fn main() {
     // Rosenbrock parameters

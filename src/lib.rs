@@ -1,6 +1,6 @@
 //! Taylor-mode automatic differentiation using Bevy ECS.
 //!
-//! `vvad` implements higher-order automatic differentiation using Taylor series
+//! `bevy_autodiff` implements higher-order automatic differentiation using Taylor series
 //! propagation, with Bevy ECS as the computational graph backend.
 //!
 //! # Core Concepts
@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```
-//! use vvad::AutoDiff;
+//! use bevy_autodiff::AutoDiff;
 //!
 //! let mut ad = AutoDiff::new();
 //!
@@ -88,7 +88,7 @@ pub use debug::{count_operations, debug_taylor_data, to_dot, validate_graph};
 
 // Re-export proc-macro when feature is enabled
 #[cfg(feature = "proc-macros")]
-pub use vvad_macros::autodiff;
+pub use bevy_autodiff_macros::autodiff;
 
 // Re-export graph traversal helpers
 pub use graph::{

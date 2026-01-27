@@ -1,9 +1,10 @@
 [package]
-name = "vvad-macros"
+name = "bevy_autodiff-macros"
 version = "0.1.0"
 edition = "2021"
-description = "Procedural macros for vvad automatic differentiation"
+description = "Procedural macros for bevy_autodiff automatic differentiation"
 license = "MIT"
+repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
 
 [lib]
 proc-macro = true

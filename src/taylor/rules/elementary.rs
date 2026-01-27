@@ -23,8 +23,8 @@ use crate::taylor::polynomial::TaylorCoeffs;
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::rules::exp_taylor;
-/// use vvad::taylor::polynomial::identity_taylor;
+/// use bevy_autodiff::taylor::rules::exp_taylor;
+/// use bevy_autodiff::taylor::polynomial::identity_taylor;
 /// use approx::assert_relative_eq;
 ///
 /// // exp(0 + t) = e^t = 1 + t + t²/2 + t³/6 + ...
@@ -65,8 +65,8 @@ pub fn exp_taylor(u: &[f64], order: usize) -> Vec<f64> {
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::rules::ln_taylor;
-/// use vvad::taylor::polynomial::identity_taylor;
+/// use bevy_autodiff::taylor::rules::ln_taylor;
+/// use bevy_autodiff::taylor::polynomial::identity_taylor;
 /// use approx::assert_relative_eq;
 ///
 /// // ln(1 + t) = t - t²/2 + t³/3 - t⁴/4 + ...
@@ -115,8 +115,8 @@ pub fn ln_taylor(u: &[f64], order: usize) -> TaylorResult<TaylorCoeffs> {
 ///
 /// # Example
 /// ```
-/// use vvad::taylor::rules::sqrt_taylor;
-/// use vvad::taylor::polynomial::identity_taylor;
+/// use bevy_autodiff::taylor::rules::sqrt_taylor;
+/// use bevy_autodiff::taylor::polynomial::identity_taylor;
 /// use approx::assert_relative_eq;
 ///
 /// // sqrt(4 + t) at t=0

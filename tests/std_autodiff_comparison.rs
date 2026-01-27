@@ -1,7 +1,7 @@
 //! Comparison tests against std::autodiff
 //!
 //! This module provides reference tests using Rust's experimental std::autodiff
-//! feature (powered by LLVM/Enzyme) as an oracle to validate vvad's first-order
+//! feature (powered by LLVM/Enzyme) as an oracle to validate bevy_autodiff's first-order
 //! derivatives against an independent AD implementation.
 //!
 //! # Requirements
@@ -24,11 +24,11 @@
 //!
 //! These tests serve as oracle validation:
 //! - std::autodiff uses LLVM/Enzyme for compile-time code transformation
-//! - vvad uses runtime computation graphs with Taylor series propagation
+//! - bevy_autodiff uses runtime computation graphs with Taylor series propagation
 //! - Agreement between both approaches validates correctness
 //!
 //! Note: std::autodiff only supports first-order derivatives, so these tests
-//! only validate first derivatives. vvad's higher-order derivatives are tested
+//! only validate first derivatives. bevy_autodiff's higher-order derivatives are tested
 //! separately using mathematical identities.
 
 #![cfg(feature = "std_autodiff_tests")]
@@ -37,7 +37,7 @@
 use approx::assert_relative_eq;
 use std::autodiff::autodiff_forward;
 use std::autodiff::autodiff_reverse;
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 // =============================================================================
 // Reference implementations using std::autodiff
@@ -154,14 +154,14 @@ fn test_sin_derivative() {
         // std::autodiff reference
         let (_, deriv_std) = sin_deriv_std(x, 1.0);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sin(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "sin derivative mismatch at x={}",
@@ -180,10 +180,10 @@ fn test_cos_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.cos(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "cos derivative mismatch at x={}",
@@ -202,10 +202,10 @@ fn test_exp_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.exp(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "exp derivative mismatch at x={}",
@@ -225,10 +225,10 @@ fn test_ln_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.ln(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "ln derivative mismatch at x={}",
@@ -248,10 +248,10 @@ fn test_sqrt_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sqrt(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "sqrt derivative mismatch at x={}",
@@ -270,10 +270,10 @@ fn test_sinh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.sinh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "sinh derivative mismatch at x={}",
@@ -292,10 +292,10 @@ fn test_cosh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.cosh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "cosh derivative mismatch at x={}",
@@ -315,10 +315,10 @@ fn test_tan_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.tan(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "tan derivative mismatch at x={}",
@@ -337,10 +337,10 @@ fn test_tanh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.tanh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "tanh derivative mismatch at x={}",
@@ -360,10 +360,10 @@ fn test_asin_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.asin(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "asin derivative mismatch at x={}",
@@ -383,10 +383,10 @@ fn test_acos_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.acos(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "acos derivative mismatch at x={}",
@@ -406,10 +406,10 @@ fn test_atan_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.atan(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "atan derivative mismatch at x={}",
@@ -429,10 +429,10 @@ fn test_asinh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.asinh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "asinh derivative mismatch at x={}",
@@ -452,10 +452,10 @@ fn test_acosh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.acosh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "acosh derivative mismatch at x={}",
@@ -475,10 +475,10 @@ fn test_atanh_derivative() {
         let mut ad = AutoDiff::new();
         let xv = ad.var(x);
         let f = ad.atanh(xv);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "atanh derivative mismatch at x={}",
@@ -499,7 +499,7 @@ fn test_rosenbrock_gradient() {
         // std::autodiff reference
         let (val_std, dx_std, dy_std) = rosenbrock_grad_std(x_val, y_val, 1.0);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let x = ad.var(x_val);
         let y = ad.var(y_val);
@@ -515,11 +515,11 @@ fn test_rosenbrock_gradient() {
         let term2 = ad.mul(hundred, term2_inner);
         let f = ad.add(term1, term2);
 
-        let val_vvad = ad.eval(f);
-        let grad_vvad = ad.gradient_reverse(f);
+        let val_bevy_autodiff = ad.eval(f);
+        let grad_bevy_autodiff = ad.gradient_reverse(f);
 
         assert_relative_eq!(
-            val_vvad,
+            val_bevy_autodiff,
             val_std,
             epsilon = 1e-10,
             "Rosenbrock value mismatch at ({}, {})",
@@ -527,7 +527,7 @@ fn test_rosenbrock_gradient() {
             y_val
         );
         assert_relative_eq!(
-            grad_vvad[0],
+            grad_bevy_autodiff[0],
             dx_std,
             epsilon = 1e-10,
             "Rosenbrock dx mismatch at ({}, {})",
@@ -535,7 +535,7 @@ fn test_rosenbrock_gradient() {
             y_val
         );
         assert_relative_eq!(
-            grad_vvad[1],
+            grad_bevy_autodiff[1],
             dy_std,
             epsilon = 1e-10,
             "Rosenbrock dy mismatch at ({}, {})",
@@ -560,7 +560,7 @@ fn test_polynomial_gradient() {
         let (val_std, dx_std, dy_std, dz_std) =
             polynomial_grad_std(x_val, y_val, z_val, 1.0);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let x = ad.var(x_val);
         let y = ad.var(y_val);
@@ -574,11 +574,11 @@ fn test_polynomial_gradient() {
         let sum1 = ad.add(x2, y3);
         let f = ad.add(sum1, zxy);
 
-        let val_vvad = ad.eval(f);
-        let grad_vvad = ad.gradient_reverse(f);
+        let val_bevy_autodiff = ad.eval(f);
+        let grad_bevy_autodiff = ad.gradient_reverse(f);
 
         assert_relative_eq!(
-            val_vvad,
+            val_bevy_autodiff,
             val_std,
             epsilon = 1e-10,
             "Polynomial value mismatch at ({}, {}, {})",
@@ -587,7 +587,7 @@ fn test_polynomial_gradient() {
             z_val
         );
         assert_relative_eq!(
-            grad_vvad[0],
+            grad_bevy_autodiff[0],
             dx_std,
             epsilon = 1e-10,
             "Polynomial dx mismatch at ({}, {}, {})",
@@ -596,7 +596,7 @@ fn test_polynomial_gradient() {
             z_val
         );
         assert_relative_eq!(
-            grad_vvad[1],
+            grad_bevy_autodiff[1],
             dy_std,
             epsilon = 1e-10,
             "Polynomial dy mismatch at ({}, {}, {})",
@@ -605,7 +605,7 @@ fn test_polynomial_gradient() {
             z_val
         );
         assert_relative_eq!(
-            grad_vvad[2],
+            grad_bevy_autodiff[2],
             dz_std,
             epsilon = 1e-10,
             "Polynomial dz mismatch at ({}, {}, {})",
@@ -624,7 +624,7 @@ fn test_sum_of_squares_gradient() {
         // std::autodiff reference
         let (val_std, dx_std, dy_std) = sum_of_squares_grad_std(x_val, y_val, 1.0);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let x = ad.var(x_val);
         let y = ad.var(y_val);
@@ -633,12 +633,12 @@ fn test_sum_of_squares_gradient() {
         let y2 = ad.square(y);
         let f = ad.add(x2, y2);
 
-        let val_vvad = ad.eval(f);
-        let grad_vvad = ad.gradient_reverse(f);
+        let val_bevy_autodiff = ad.eval(f);
+        let grad_bevy_autodiff = ad.gradient_reverse(f);
 
-        assert_relative_eq!(val_vvad, val_std, epsilon = 1e-10);
-        assert_relative_eq!(grad_vvad[0], dx_std, epsilon = 1e-10);
-        assert_relative_eq!(grad_vvad[1], dy_std, epsilon = 1e-10);
+        assert_relative_eq!(val_bevy_autodiff, val_std, epsilon = 1e-10);
+        assert_relative_eq!(grad_bevy_autodiff[0], dx_std, epsilon = 1e-10);
+        assert_relative_eq!(grad_bevy_autodiff[1], dy_std, epsilon = 1e-10);
     }
 }
 
@@ -650,18 +650,18 @@ fn test_product_gradient() {
         // std::autodiff reference
         let (val_std, dx_std, dy_std) = product_grad_std(x_val, y_val, 1.0);
 
-        // vvad computation
+        // bevy_autodiff computation
         let mut ad = AutoDiff::new();
         let x = ad.var(x_val);
         let y = ad.var(y_val);
         let f = ad.mul(x, y);
 
-        let val_vvad = ad.eval(f);
-        let grad_vvad = ad.gradient_reverse(f);
+        let val_bevy_autodiff = ad.eval(f);
+        let grad_bevy_autodiff = ad.gradient_reverse(f);
 
-        assert_relative_eq!(val_vvad, val_std, epsilon = 1e-10);
-        assert_relative_eq!(grad_vvad[0], dx_std, epsilon = 1e-10);
-        assert_relative_eq!(grad_vvad[1], dy_std, epsilon = 1e-10);
+        assert_relative_eq!(val_bevy_autodiff, val_std, epsilon = 1e-10);
+        assert_relative_eq!(grad_bevy_autodiff[0], dx_std, epsilon = 1e-10);
+        assert_relative_eq!(grad_bevy_autodiff[1], dy_std, epsilon = 1e-10);
     }
 }
 
@@ -671,7 +671,7 @@ fn test_product_gradient() {
 
 #[test]
 fn test_forward_reverse_agreement() {
-    // Test that vvad's forward and reverse mode produce the same gradients
+    // Test that bevy_autodiff's forward and reverse mode produce the same gradients
     let mut ad = AutoDiff::new();
     let x = ad.var(1.0);
     let y = ad.var(2.0);
@@ -721,10 +721,10 @@ fn test_composed_function_derivative() {
         let xv = ad.var(x);
         let sin_x = ad.sin(xv);
         let f = ad.exp(sin_x);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "exp(sin(x)) derivative mismatch at x={}",
@@ -749,10 +749,10 @@ fn test_chain_rule() {
         let xv = ad.var(x);
         let x2 = ad.square(xv);
         let f = ad.sin(x2);
-        let deriv_vvad = ad.derivative(f, xv, 1);
+        let deriv_bevy_autodiff = ad.derivative(f, xv, 1);
 
         assert_relative_eq!(
-            deriv_vvad,
+            deriv_bevy_autodiff,
             deriv_std,
             epsilon = 1e-10,
             "sin(x^2) derivative mismatch at x={}",

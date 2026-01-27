@@ -4,7 +4,7 @@
 //!
 //! Run with: cargo run --example gradient
 
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 fn main() {
     let mut ad = AutoDiff::new();

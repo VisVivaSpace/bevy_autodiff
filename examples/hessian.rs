@@ -4,7 +4,7 @@
 //!
 //! Run with: cargo run --example hessian
 
-use vvad::AutoDiff;
+use bevy_autodiff::AutoDiff;
 
 fn main() {
     let mut ad = AutoDiff::new();

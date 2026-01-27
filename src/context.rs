@@ -26,7 +26,7 @@ pub struct BinaryOpMarker(pub BinaryOp);
 /// # Example
 ///
 /// ```
-/// use vvad::AutoDiff;
+/// use bevy_autodiff::AutoDiff;
 ///
 /// let mut ad = AutoDiff::new();
 ///
@@ -425,7 +425,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::AutoDiff;
+    /// use bevy_autodiff::AutoDiff;
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(2.0);
@@ -474,7 +474,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::AutoDiff;
+    /// use bevy_autodiff::AutoDiff;
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(1.0);
@@ -511,7 +511,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::{AutoDiff, MultiIndex};
+    /// use bevy_autodiff::{AutoDiff, MultiIndex};
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(2.0);
@@ -536,7 +536,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::AutoDiff;
+    /// use bevy_autodiff::AutoDiff;
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(1.0);
@@ -565,7 +565,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::AutoDiff;
+    /// use bevy_autodiff::AutoDiff;
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(1.0);
@@ -613,7 +613,7 @@ impl AutoDiff {
     /// # Example
     ///
     /// ```
-    /// use vvad::AutoDiff;
+    /// use bevy_autodiff::AutoDiff;
     ///
     /// let mut ad = AutoDiff::new();
     /// let x = ad.var(1.0);
