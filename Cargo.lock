@@ -78,6 +78,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_autodiff"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "autodiff",
+ "bevy_autodiff-macros",
+ "bevy_ecs",
+ "bevy_entity_ptr",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "bevy_autodiff-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "bevy_ecs"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -113,6 +135,8 @@ dependencies = [
 [[package]]
 name = "bevy_entity_ptr"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86aa7b8492e2e8a95c5bf14b9743f514b3d1cce5a36f6a227cb859ae1eecc9eb"
 dependencies = [
  "bevy_ecs",
 ]
@@ -716,28 +740,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vvad"
-version = "0.1.0"
-dependencies = [
- "approx",
- "autodiff",
- "bevy_ecs",
- "bevy_entity_ptr",
- "smallvec",
- "thiserror",
- "vvad-macros",
-]
-
-[[package]]
-name = "vvad-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "wasi"

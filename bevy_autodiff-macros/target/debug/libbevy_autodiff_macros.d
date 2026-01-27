@@ -1,0 +1,1 @@
+/Users/nstrange/git/open_source/bevy_autodiff/bevy_autodiff-macros/target/debug/libbevy_autodiff_macros.dylib: /Users/nstrange/git/open_source/bevy_autodiff/bevy_autodiff-macros/target/package/bevy_autodiff-macros-0.1.0/src/lib.rs
