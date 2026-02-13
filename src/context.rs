@@ -4,8 +4,8 @@ use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
 use crate::components::{
-    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, TaylorData, UnaryInput, UnaryOp,
-    Value, Variable,
+    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value,
+    Variable,
 };
 use crate::var::Var;
 
@@ -46,6 +46,8 @@ pub struct AutoDiff {
     world: World,
     /// Counter for assigning input indices (for dependency tracking).
     input_count: usize,
+    /// Input variables in creation order.
+    inputs: Vec<Var>,
 }
 
 impl AutoDiff {
@@ -55,6 +57,7 @@ impl AutoDiff {
         Self {
             world: World::new(),
             input_count: 0,
+            inputs: Vec::new(),
         }
     }
 
@@ -66,7 +69,6 @@ impl AutoDiff {
     }
 
     /// Returns a mutable reference to the underlying ECS world.
-    /// Use with care - modifying the world directly can invalidate cached Taylor data.
     #[inline]
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
@@ -87,11 +89,12 @@ impl AutoDiff {
                 IsInput,
                 Value::new(value),
                 Dependencies::single(input_index),
-                TaylorData::constant(value),
             ))
             .id();
 
-        Var::new(entity)
+        let v = Var::new(entity);
+        self.inputs.push(v);
+        v
     }
 
     /// Creates a constant variable with the given value.
@@ -106,7 +109,6 @@ impl AutoDiff {
                 IsConstant,
                 Value::new(value),
                 Dependencies::none(),
-                TaylorData::constant(value),
             ))
             .id();
 
@@ -128,8 +130,6 @@ impl AutoDiff {
 
     /// Sets the value of an input variable.
     ///
-    /// This will invalidate any cached Taylor data that depends on this input.
-    ///
     /// # Panics
     /// Panics if the variable is not an input variable.
     pub fn set_input(&mut self, var: Var, value: f64) {
@@ -143,11 +143,6 @@ impl AutoDiff {
         // Update value
         if let Some(mut val) = self.world.entity_mut(entity).get_mut::<Value>() {
             val.0 = value;
-        }
-
-        // Update Taylor data (constant for inputs)
-        if let Some(mut taylor) = self.world.entity_mut(entity).get_mut::<TaylorData>() {
-            *taylor = TaylorData::constant(value);
         }
     }
 
@@ -213,7 +208,6 @@ impl AutoDiff {
                 BinaryOpMarker(op),
                 BinaryInputs::new(a.handle(), b.handle()),
                 deps,
-                TaylorData::constant(result),
             ))
             .id();
 
@@ -343,7 +337,6 @@ impl AutoDiff {
                 UnaryOpMarker(op),
                 UnaryInput::new(EntityHandle::new(x.entity())),
                 deps,
-                TaylorData::constant(result),
             ))
             .id();
 
@@ -382,6 +375,12 @@ impl AutoDiff {
         self.input_count
     }
 
+    /// Returns the input variables in creation order.
+    #[inline]
+    pub fn inputs(&self) -> &[Var] {
+        &self.inputs
+    }
+
     /// Returns true if the variable is an input variable.
     #[inline]
     pub fn is_input(&self, var: Var) -> bool {
@@ -409,343 +408,18 @@ impl AutoDiff {
 
         // Check if output depends on any of those inputs
         let output_deps = self.world.entity(output.entity()).get::<Dependencies>();
-        output_deps.map(|d| (d.mask & input_mask) != 0).unwrap_or(false)
-    }
-
-    // =========================================================================
-    // Differentiation
-    // =========================================================================
-
-    /// Computes the k-th derivative of `output` with respect to `input`.
-    ///
-    /// Uses Taylor series propagation: parameterize along the direction
-    /// from the current input value with unit change in the target input,
-    /// then extract the k-th Taylor coefficient multiplied by k!.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(2.0);
-    /// let y = ad.square(x);  // y = x²
-    ///
-    /// // dy/dx = 2x = 4 at x=2
-    /// assert_eq!(ad.derivative(y, x, 1), 4.0);
-    ///
-    /// // d²y/dx² = 2
-    /// assert_eq!(ad.derivative(y, x, 2), 2.0);
-    /// ```
-    pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> f64 {
-        use crate::components::Direction;
-        use crate::taylor::propagate::{extract_derivative, propagate_taylor};
-
-        // Get the input's index in the dependency mask
-        let input_deps = self
-            .world
-            .entity(input.entity())
-            .get::<Dependencies>()
-            .cloned()
-            .unwrap_or_else(Dependencies::none);
-
-        if input_deps.is_empty() {
-            // If input has no dependencies tracked (constant), derivative is 0
-            return 0.0;
-        }
-
-        let input_index = input_deps.mask.trailing_zeros() as usize;
-
-        // Create a direction vector with 1 in the input's position
-        let direction = Direction::basis(self.input_count, input_index);
-
-        // Propagate Taylor coefficients
-        let coeffs = propagate_taylor(&mut self.world, output.entity(), &direction, order);
-
-        // Extract the k-th derivative
-        extract_derivative(&coeffs, order)
-    }
-
-    /// Computes the gradient of `output` with respect to all inputs.
-    ///
-    /// Returns a vector of first derivatives, one for each input variable
-    /// in the order they were created.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
-    /// let x2 = ad.square(x);
-    /// let y2 = ad.square(y);
-    /// let f = ad.add(x2, y2);  // f = x² + y²
-    ///
-    /// let grad = ad.gradient(f);
-    /// assert_eq!(grad, vec![2.0, 4.0]);  // [∂f/∂x, ∂f/∂y] = [2x, 2y]
-    /// ```
-    pub fn gradient(&mut self, output: Var) -> Vec<f64> {
-        use crate::components::Direction;
-        use crate::taylor::propagate::{extract_derivative, propagate_taylor};
-
-        let mut grad = Vec::with_capacity(self.input_count);
-
-        for i in 0..self.input_count {
-            let direction = Direction::basis(self.input_count, i);
-            let coeffs = propagate_taylor(&mut self.world, output.entity(), &direction, 1);
-            grad.push(extract_derivative(&coeffs, 1));
-        }
-
-        grad
-    }
-
-    /// Computes a partial derivative specified by a multi-index.
-    ///
-    /// The multi-index α = (α₁, α₂, ..., αₙ) specifies:
-    /// ∂^|α|f / ∂x₁^α₁ ∂x₂^α₂ ... ∂xₙ^αₙ
-    ///
-    /// where |α| = α₁ + α₂ + ... + αₙ is the total order.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::{AutoDiff, MultiIndex};
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(2.0);
-    /// let y = ad.var(3.0);
-    /// let f = ad.mul(x, y);  // f = x * y
-    ///
-    /// // ∂²f/∂x∂y = 1
-    /// let index = MultiIndex::new(vec![1, 1]);
-    /// let mixed = ad.partial(f, &index);
-    /// assert!((mixed - 1.0).abs() < 1e-10);
-    /// ```
-    pub fn partial(&mut self, output: Var, index: &crate::components::MultiIndex) -> f64 {
-        crate::partials::compute_partial(&mut self.world, output, index, self.input_count)
-    }
-
-    /// Computes the gradient using reverse mode (backpropagation).
-    ///
-    /// This is more efficient than `gradient()` (forward mode) when there are
-    /// many inputs and one output, as it only requires one backward pass
-    /// instead of one forward pass per input.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
-    /// let x2 = ad.square(x);
-    /// let y2 = ad.square(y);
-    /// let f = ad.add(x2, y2);  // f = x² + y²
-    ///
-    /// // ∇f = [2x, 2y] = [2, 4]
-    /// let grad = ad.gradient_reverse(f);
-    /// assert_eq!(grad, vec![2.0, 4.0]);
-    /// ```
-    pub fn gradient_reverse(&mut self, output: Var) -> Vec<f64> {
-        crate::reverse::compute_gradient_reverse(&mut self.world, output, self.input_count)
-    }
-
-    // =========================================================================
-    // Higher-Order API (Phase 7)
-    // =========================================================================
-
-    /// Computes the Hessian matrix (matrix of second partial derivatives).
-    ///
-    /// Returns an n×n matrix H where H[i][j] = ∂²f/∂xᵢ∂xⱼ.
-    /// The Hessian is symmetric for smooth functions (Schwarz's theorem).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
-    /// let x2 = ad.square(x);
-    /// let y2 = ad.square(y);
-    /// let f = ad.add(x2, y2);  // f = x² + y²
-    ///
-    /// let hess = ad.hessian(f);
-    /// // H = [[2, 0], [0, 2]]
-    /// assert_eq!(hess[0][0], 2.0);
-    /// assert_eq!(hess[0][1], 0.0);
-    /// assert_eq!(hess[1][0], 0.0);
-    /// assert_eq!(hess[1][1], 2.0);
-    /// ```
-    pub fn hessian(&mut self, output: Var) -> Vec<Vec<f64>> {
-        use crate::components::MultiIndex;
-
-        let n = self.input_count;
-        let mut hess = vec![vec![0.0; n]; n];
-
-        for i in 0..n {
-            for j in i..n {
-                let mut index = vec![0; n];
-                index[i] += 1;
-                index[j] += 1;
-                let multi = MultiIndex::new(index);
-
-                let value = self.partial(output, &multi);
-                hess[i][j] = value;
-                hess[j][i] = value; // Symmetry
-            }
-        }
-
-        hess
-    }
-
-    /// Computes the Jacobian matrix for multiple outputs.
-    ///
-    /// Returns an m×n matrix J where J[i][j] = ∂fᵢ/∂xⱼ.
-    ///
-    /// # Arguments
-    /// - `outputs`: Vector of output variables
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
-    ///
-    /// let f1 = ad.mul(x, y);        // f1 = x*y
-    /// let f2 = ad.add(x, y);        // f2 = x + y
-    ///
-    /// let jac = ad.jacobian(&[f1, f2]);
-    /// // J = [[∂f1/∂x, ∂f1/∂y], [∂f2/∂x, ∂f2/∂y]]
-    /// //   = [[y, x], [1, 1]]
-    /// //   = [[2, 1], [1, 1]]
-    /// assert_eq!(jac[0], vec![2.0, 1.0]);
-    /// assert_eq!(jac[1], vec![1.0, 1.0]);
-    /// ```
-    pub fn jacobian(&mut self, outputs: &[Var]) -> Vec<Vec<f64>> {
-        outputs.iter().map(|&out| self.gradient(out)).collect()
+        output_deps
+            .map(|d| (d.mask & input_mask) != 0)
+            .unwrap_or(false)
     }
 
     /// Sets multiple input values at once.
-    ///
-    /// This is more efficient than calling `set_input` multiple times when
-    /// you need to update several inputs, as it batches the cache invalidation.
-    ///
-    /// # Arguments
-    /// - `inputs`: Slice of (Var, value) pairs
     ///
     /// # Panics
     /// Panics if any variable is not an input variable.
     pub fn set_inputs(&mut self, inputs: &[(Var, f64)]) {
         for &(var, value) in inputs {
             self.set_input(var, value);
-        }
-    }
-
-    /// Compiles the computation graph for a given output and inputs into a
-    /// flat representation that can be re-evaluated efficiently at new input
-    /// values without touching the ECS.
-    ///
-    /// `N` = number of Taylor coefficients (derivative order + 1).
-    /// `M` = number of input variables.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use bevy_autodiff::AutoDiff;
-    ///
-    /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(2.0);
-    /// let f = ad.square(x); // f = x²
-    ///
-    /// let mut cg = ad.compile::<3, 1>(f, &[x]);
-    /// cg.eval(&[3.0]);
-    /// assert!((cg.partial(&[1]) - 6.0).abs() < 1e-10); // df/dx = 2x = 6
-    /// ```
-    pub fn compile<const N: usize, const M: usize>(
-        &self,
-        output: Var,
-        inputs: &[Var; M],
-    ) -> crate::compiled::CompiledGraph<N, M> {
-        use crate::compiled::NodeOp;
-        use crate::graph::topological_order;
-        use std::collections::HashMap;
-
-        let topo = topological_order(&self.world, output.entity());
-
-        // Map each entity to a flat node index
-        let mut entity_to_idx: HashMap<bevy_ecs::entity::Entity, usize> = HashMap::new();
-        for (i, &entity) in topo.iter().enumerate() {
-            entity_to_idx.insert(entity, i);
-        }
-
-        // Build input entity -> input index mapping
-        let mut input_entity_to_idx: HashMap<bevy_ecs::entity::Entity, usize> = HashMap::new();
-        for (i, var) in inputs.iter().enumerate() {
-            input_entity_to_idx.insert(var.entity(), i);
-        }
-
-        // Convert each entity to a NodeOp
-        let mut nodes = Vec::with_capacity(topo.len());
-        for &entity in &topo {
-            let entity_ref = self.world.entity(entity);
-
-            let node = if let Some(&input_idx) = input_entity_to_idx.get(&entity) {
-                NodeOp::Input(input_idx)
-            } else if entity_ref.contains::<IsConstant>() {
-                let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
-                NodeOp::Constant(value)
-            } else if let Some(op_marker) = entity_ref.get::<crate::context::UnaryOpMarker>() {
-                let input_handle = entity_ref
-                    .get::<UnaryInput>()
-                    .expect("UnaryOp missing input");
-                let src = entity_to_idx[&input_handle.get().entity()];
-                NodeOp::Unary { op: op_marker.0, src }
-            } else if let Some(op_marker) = entity_ref.get::<crate::context::BinaryOpMarker>() {
-                let bin_inputs = entity_ref
-                    .get::<BinaryInputs>()
-                    .expect("BinaryOp missing inputs");
-                let lhs = entity_to_idx[&bin_inputs.left.entity()];
-                let rhs = entity_to_idx[&bin_inputs.right.entity()];
-                NodeOp::Binary { op: op_marker.0, lhs, rhs }
-            } else {
-                // Unknown node type — treat as constant
-                let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
-                NodeOp::Constant(value)
-            };
-
-            nodes.push(node);
-        }
-
-        let output_node = entity_to_idx[&output.entity()];
-        crate::compiled::CompiledGraph::new(nodes, output_node)
-    }
-
-    /// Clears all cached Taylor coefficients.
-    ///
-    /// Call this when you want to force recomputation of all derivatives,
-    /// or to free memory after completing a computation.
-    pub fn clear_cache(&mut self) {
-        use crate::components::TaylorData;
-
-        // Get all entities with TaylorData
-        let entities: Vec<bevy_ecs::entity::Entity> = self
-            .world
-            .query::<bevy_ecs::entity::Entity>()
-            .iter(&self.world)
-            .collect();
-
-        for entity in entities {
-            if let Some(mut td) = self.world.get_mut::<TaylorData>(entity) {
-                td.clear();
-            }
         }
     }
 }
@@ -798,6 +472,14 @@ mod tests {
         assert_eq!(ad.eval(x), 1.0);
         assert_eq!(ad.eval(y), 2.0);
         assert_eq!(ad.eval(z), 3.0);
+    }
+
+    #[test]
+    fn test_inputs_tracking() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let y = ad.var(2.0);
+        assert_eq!(ad.inputs(), &[x, y]);
     }
 
     #[test]
@@ -1046,164 +728,5 @@ mod tests {
     fn test_default_context() {
         let ad = AutoDiff::default();
         assert_eq!(ad.input_count(), 0);
-    }
-
-    // ===================
-    // Derivative tests
-    // ===================
-
-    #[test]
-    fn test_derivative_x_squared() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
-        let y = ad.square(x); // y = x²
-
-        // dy/dx = 2x = 6 at x=3
-        assert_eq!(ad.derivative(y, x, 1), 6.0);
-
-        // d²y/dx² = 2
-        assert_eq!(ad.derivative(y, x, 2), 2.0);
-
-        // d³y/dx³ = 0
-        assert_relative_eq!(ad.derivative(y, x, 3), 0.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_sin() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.sin(x); // y = sin(x)
-
-        // At x=0: sin(0)=0, cos(0)=1, -sin(0)=0, -cos(0)=-1
-        assert_relative_eq!(ad.derivative(y, x, 0), 0.0, epsilon = 1e-10); // sin(0) = 0
-        assert_relative_eq!(ad.derivative(y, x, 1), 1.0, epsilon = 1e-10); // cos(0) = 1
-        assert_relative_eq!(ad.derivative(y, x, 2), 0.0, epsilon = 1e-10); // -sin(0) = 0
-        assert_relative_eq!(ad.derivative(y, x, 3), -1.0, epsilon = 1e-10); // -cos(0) = -1
-    }
-
-    #[test]
-    fn test_derivative_cos() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.cos(x); // y = cos(x)
-
-        // At x=0: cos(0)=1, -sin(0)=0, -cos(0)=-1, sin(0)=0
-        assert_relative_eq!(ad.derivative(y, x, 0), 1.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 1), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 2), -1.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 3), 0.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_exp() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.exp(x); // y = e^x
-
-        // All derivatives of e^x at x=0 equal 1
-        for k in 0..=5 {
-            assert_relative_eq!(ad.derivative(y, x, k), 1.0, epsilon = 1e-10);
-        }
-    }
-
-    #[test]
-    fn test_derivative_ln() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.ln(x); // y = ln(x)
-
-        // At x=1: ln(1)=0, 1/1=1, -1/1²=-1, 2!/1³=2, -3!/1⁴=-6
-        assert_relative_eq!(ad.derivative(y, x, 0), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 1), 1.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 2), -1.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 3), 2.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_sqrt() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
-        let y = ad.sqrt(x); // y = sqrt(x)
-
-        // At x=4: sqrt(4)=2
-        // d/dx sqrt(x) = 1/(2*sqrt(x)) = 1/4 = 0.25 at x=4
-        assert_relative_eq!(ad.derivative(y, x, 0), 2.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.derivative(y, x, 1), 0.25, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_chain_rule() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let x2 = ad.square(x);
-        let y = ad.sin(x2); // y = sin(x²)
-
-        // dy/dx = cos(x²) * 2x = 0 at x=0
-        assert_relative_eq!(ad.derivative(y, x, 1), 0.0, epsilon = 1e-10);
-
-        // d²y/dx² = -sin(x²)*4x² + cos(x²)*2 = 2 at x=0
-        assert_relative_eq!(ad.derivative(y, x, 2), 2.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_gradient() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
-
-        // f = x² + y²
-        let x2 = ad.square(x);
-        let y2 = ad.square(y);
-        let f = ad.add(x2, y2);
-
-        // ∇f = [2x, 2y] = [2, 4]
-        let grad = ad.gradient(f);
-        assert_eq!(grad.len(), 2);
-        assert_relative_eq!(grad[0], 2.0, epsilon = 1e-10);
-        assert_relative_eq!(grad[1], 4.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_composition() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-
-        // f = exp(sin(x))
-        let sin_x = ad.sin(x);
-        let f = ad.exp(sin_x);
-
-        // f'(x) = exp(sin(x)) * cos(x)
-        // At x=1: f'(1) = exp(sin(1)) * cos(1)
-        let expected = (1.0_f64.sin()).exp() * 1.0_f64.cos();
-        assert_relative_eq!(ad.derivative(f, x, 1), expected, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_power() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.powi(x, 3); // y = x³
-
-        // dy/dx = 3x² = 12 at x=2
-        assert_relative_eq!(ad.derivative(y, x, 1), 12.0, epsilon = 1e-10);
-
-        // d²y/dx² = 6x = 12 at x=2
-        assert_relative_eq!(ad.derivative(y, x, 2), 12.0, epsilon = 1e-10);
-
-        // d³y/dx³ = 6
-        assert_relative_eq!(ad.derivative(y, x, 3), 6.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_derivative_sqrt_as_power() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
-        let y = ad.powf(x, 0.5); // y = x^0.5 = sqrt(x)
-
-        // Value: sqrt(4) = 2
-        assert_relative_eq!(ad.eval(y), 2.0, epsilon = 1e-10);
-
-        // dy/dx = 0.5 * x^(-0.5) = 0.5 / sqrt(4) = 0.25 at x=4
-        assert_relative_eq!(ad.derivative(y, x, 1), 0.25, epsilon = 1e-10);
     }
 }

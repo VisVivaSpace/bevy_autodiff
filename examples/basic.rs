@@ -1,6 +1,6 @@
 //! Basic bevy_autodiff usage example
 //!
-//! Demonstrates variable creation, arithmetic operations, and derivative computation.
+//! Demonstrates variable creation and arithmetic operations.
 //!
 //! Run with: cargo run --example basic
 
@@ -24,12 +24,5 @@ fn main() {
     let value = ad.eval(f);
     println!("f(2) = {}", value);
 
-    // First derivative: f'(x) = 2x + 3
-    // At x=2: f'(2) = 4 + 3 = 7
-    let df_dx = ad.derivative(f, x, 1);
-    println!("f'(2) = {}", df_dx);
-
-    // Second derivative: f''(x) = 2
-    let d2f_dx2 = ad.derivative(f, x, 2);
-    println!("f''(2) = {}", d2f_dx2);
+    // Derivative computation will be re-enabled after differentiate() is implemented
 }

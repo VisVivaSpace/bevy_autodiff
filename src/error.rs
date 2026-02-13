@@ -1,16 +1,12 @@
-//! Error types for Taylor coefficient computation.
-//!
-//! This module provides error types for mathematical domain errors that can occur
-//! during Taylor coefficient computation, such as division by zero or logarithm
-//! of non-positive values.
+//! Error types for automatic differentiation.
 
 use thiserror::Error;
 
-/// Errors that can occur during Taylor coefficient computation.
+/// Errors that can occur during automatic differentiation.
 #[derive(Debug, Clone, Error)]
-pub enum TaylorError {
-    /// Division by zero: the denominator's leading coefficient is zero.
-    #[error("Division by zero: divisor's leading coefficient is {0}")]
+pub enum AutoDiffError {
+    /// Division by zero.
+    #[error("Division by zero: divisor value is {0}")]
     DivisionByZero(f64),
 
     /// Logarithm domain error: input must be positive.
@@ -31,5 +27,5 @@ pub enum TaylorError {
     },
 }
 
-/// Alias for Result with TaylorError.
-pub type TaylorResult<T> = Result<T, TaylorError>;
+/// Alias for Result with AutoDiffError.
+pub type AutoDiffResult<T> = Result<T, AutoDiffError>;

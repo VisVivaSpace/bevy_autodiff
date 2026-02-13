@@ -416,16 +416,6 @@ mod tests {
     }
 
     #[test]
-    fn test_expr_derivative() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-
-        let f = expr!(ad, x * x); // f = x²
-        assert_eq!(ad.derivative(f, x, 1), 4.0); // f' = 2x = 4
-        assert_eq!(ad.derivative(f, x, 2), 2.0); // f'' = 2
-    }
-
-    #[test]
     fn test_expr_rosenbrock() {
         let mut ad = AutoDiff::new();
         let x = ad.var(1.0);
@@ -435,42 +425,6 @@ mod tests {
         // f = (1-x)² + 100(y-x²)²
         let f = expr!(ad, (1.0 - x) * (1.0 - x) + 100.0 * (y - x * x) * (y - x * x));
         assert_relative_eq!(ad.eval(f), 0.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_expr_rosenbrock_gradient() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(1.0);
-
-        // At the minimum (1,1), gradient should be [0, 0]
-        let f = expr!(ad, (1.0 - x) * (1.0 - x) + 100.0 * (y - x * x) * (y - x * x));
-        let grad = ad.gradient(f);
-
-        assert_relative_eq!(grad[0], 0.0, epsilon = 1e-10);
-        assert_relative_eq!(grad[1], 0.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_expr_chain_rule() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-
-        // f = sin(x²), f' = 2x*cos(x²) = 0 at x=0
-        let f = expr!(ad, sin(x * x));
-        assert_relative_eq!(ad.derivative(f, x, 1), 0.0, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_expr_complex_derivative() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-
-        // f = exp(sin(x))
-        // f' = exp(sin(x)) * cos(x)
-        let f = expr!(ad, exp(sin(x)));
-        let expected = (1.0_f64.sin()).exp() * 1.0_f64.cos();
-        assert_relative_eq!(ad.derivative(f, x, 1), expected, epsilon = 1e-10);
     }
 
     #[test]

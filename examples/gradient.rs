@@ -1,6 +1,7 @@
 //! Gradient computation example
 //!
-//! Demonstrates forward and reverse mode gradient computation for multivariate functions.
+//! Demonstrates building a multivariate computation graph.
+//! Gradient computation will be re-enabled after differentiate() is implemented.
 //!
 //! Run with: cargo run --example gradient
 
@@ -24,37 +25,5 @@ fn main() {
     let value = ad.eval(f);
     println!("f(1, 2) = {}", value);
 
-    // Compute gradient using forward mode
-    // df/dx = 2x + y = 2(1) + 2 = 4
-    // df/dy = x + 2y = 1 + 2(2) = 5
-    let grad = ad.gradient(f);
-    println!("Forward gradient: {:?}", grad);
-
-    // Compute gradient using reverse mode (more efficient for many inputs)
-    let grad_rev = ad.gradient_reverse(f);
-    println!("Reverse gradient: {:?}", grad_rev);
-
-    // Verify gradients match
-    let df_dx_expected = 4.0;
-    let df_dy_expected = 5.0;
-
-    println!("\nExpected: df/dx = {}, df/dy = {}", df_dx_expected, df_dy_expected);
-
-    // Check forward mode
-    if grad.len() >= 2 {
-        let diff_x = (grad[0] - df_dx_expected).abs();
-        let diff_y = (grad[1] - df_dy_expected).abs();
-        if diff_x < 1e-10 && diff_y < 1e-10 {
-            println!("Forward gradient matches expected values!");
-        }
-    }
-
-    // Check reverse mode
-    if grad_rev.len() >= 2 {
-        let diff_x = (grad_rev[0] - df_dx_expected).abs();
-        let diff_y = (grad_rev[1] - df_dy_expected).abs();
-        if diff_x < 1e-10 && diff_y < 1e-10 {
-            println!("Reverse gradient matches expected values!");
-        }
-    }
+    // Gradient computation will be re-enabled after differentiate() is implemented
 }

@@ -2,16 +2,13 @@
 //!
 //! This module provides tools for inspecting and visualizing computation graphs:
 //! - DOT graph output for visualization
-//! - Taylor coefficient inspection
 //! - Graph validation
 
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::fmt::Write;
 
-use crate::components::{
-    BinaryInputs, IsConstant, IsInput, TaylorData, UnaryInput, Value,
-};
+use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput, Value};
 use crate::context::{BinaryOpMarker, UnaryOpMarker};
 use crate::graph::topological_order;
 use crate::var::Var;
@@ -19,17 +16,6 @@ use crate::var::Var;
 /// Generates a DOT graph representation of the computation graph.
 ///
 /// The output can be visualized using Graphviz or similar tools.
-///
-/// # Example
-/// ```text
-/// digraph {
-///     node_0 [label="x = 2.0" shape=ellipse];
-///     node_1 [label="y = 3.0" shape=ellipse];
-///     node_2 [label="mul" shape=box];
-///     node_0 -> node_2;
-///     node_1 -> node_2;
-/// }
-/// ```
 pub fn to_dot(world: &World, output: Var) -> String {
     let mut dot = String::from("digraph {\n    rankdir=BT;\n");
 
@@ -111,39 +97,6 @@ fn get_node_label(world: &World, entity: Entity) -> String {
     "???".to_string()
 }
 
-/// Generates a debug representation of Taylor data for a variable.
-///
-/// Shows cached directional coefficients and partial derivatives.
-pub fn debug_taylor_data(world: &World, var: Var) -> String {
-    let mut result = String::new();
-
-    if let Some(td) = world.get::<TaylorData>(var.entity()) {
-        writeln!(result, "TaylorData for {:?}:", var.entity()).unwrap();
-
-        if td.directional.is_empty() {
-            writeln!(result, "  Directional: (none cached)").unwrap();
-        } else {
-            writeln!(result, "  Directional:").unwrap();
-            for (dir, coeffs) in &td.directional {
-                writeln!(result, "    {:?}: {:?}", dir.0, coeffs).unwrap();
-            }
-        }
-
-        if td.partials.is_empty() {
-            writeln!(result, "  Partials: (none cached)").unwrap();
-        } else {
-            writeln!(result, "  Partials:").unwrap();
-            for (idx, value) in &td.partials {
-                writeln!(result, "    {:?}: {:.6}", idx.0, value).unwrap();
-            }
-        }
-    } else {
-        writeln!(result, "No TaylorData for {:?}", var.entity()).unwrap();
-    }
-
-    result
-}
-
 /// Validates the computation graph for common issues.
 ///
 /// Checks:
@@ -181,7 +134,10 @@ pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
         // Check binary operations have inputs
         if entity_ref.contains::<BinaryOpMarker>() {
             if entity_ref.get::<BinaryInputs>().is_none() {
-                return Err(format!("Binary operation {:?} missing BinaryInputs", entity));
+                return Err(format!(
+                    "Binary operation {:?} missing BinaryInputs",
+                    entity
+                ));
             }
             let inputs = entity_ref.get::<BinaryInputs>().unwrap();
             if world.get_entity(inputs.left.entity()).is_err() {
@@ -271,19 +227,5 @@ mod tests {
         assert_eq!(inputs, 2);
         assert_eq!(constants, 1);
         assert_eq!(ops, 2); // mul and add
-    }
-
-    #[test]
-    fn test_debug_taylor_data() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.square(x);
-
-        // Compute some derivatives to populate cache
-        ad.derivative(y, x, 2);
-
-        let debug = debug_taylor_data(ad.world(), y);
-        assert!(debug.contains("TaylorData"));
-        assert!(debug.contains("Directional"));
     }
 }

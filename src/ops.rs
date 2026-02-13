@@ -350,19 +350,6 @@ mod tests {
     }
 
     #[test]
-    fn test_derivative_with_ops() {
-        let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-
-        // f = x² = x * x
-        let f = with_context(&mut ad, || x * x);
-
-        // f' = 2x = 4 at x=2
-        let df = ad.derivative(f, x, 1);
-        assert!((df - 4.0).abs() < 1e-10);
-    }
-
-    #[test]
     #[should_panic(expected = "Operator overloading requires an active AutoDiff context")]
     fn test_panic_without_context() {
         let mut ad = AutoDiff::new();
