@@ -1,5 +1,7 @@
 //! AutoDiff context - the main API for building computation graphs.
 
+use std::collections::HashMap;
+
 use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
@@ -7,6 +9,7 @@ use crate::components::{
     BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value,
     Variable,
 };
+use crate::graph::topology::topological_order;
 use crate::var::Var;
 
 /// Component marker for unary operations (stores the operation type).
@@ -422,6 +425,350 @@ impl AutoDiff {
             self.set_input(var, value);
         }
     }
+
+    // =========================================================================
+    // Symbolic Differentiation
+    // =========================================================================
+
+    /// Differentiates the computation graph symbolically.
+    ///
+    /// Creates NEW entities in the ECS world representing the derivative
+    /// of `output` with respect to `wrt`. The returned `Var` points to
+    /// the root of the derivative subgraph.
+    ///
+    /// For higher-order or mixed partial derivatives, call repeatedly:
+    /// ```
+    /// # use bevy_autodiff::AutoDiff;
+    /// let mut ad = AutoDiff::new();
+    /// let x = ad.var(2.0);
+    /// let y = ad.var(3.0);
+    /// let f = ad.mul(x, y); // f = x * y
+    ///
+    /// // First derivative: df/dx = y
+    /// let dfdx = ad.differentiate(f, x);
+    /// assert_eq!(ad.eval(dfdx), 3.0);
+    ///
+    /// // Mixed partial: d²f/dxdy = 1
+    /// let d2fdxdy = ad.differentiate(dfdx, y);
+    /// assert_eq!(ad.eval(d2fdxdy), 1.0);
+    /// ```
+    pub fn differentiate(&mut self, output: Var, wrt: Var) -> Var {
+        let order = topological_order(&self.world, output.entity());
+        let mut derivs: HashMap<bevy_ecs::entity::Entity, Var> = HashMap::new();
+
+        let zero = self.constant(0.0);
+        let one = self.constant(1.0);
+
+        for &entity in &order {
+            // Extract all info from the entity before any mutations
+            let is_wrt = entity == wrt.entity();
+            let is_input = self.world.entity(entity).contains::<IsInput>();
+            let is_const = self.world.entity(entity).contains::<IsConstant>();
+            let unary_op = self
+                .world
+                .entity(entity)
+                .get::<UnaryOpMarker>()
+                .map(|m| m.0);
+            let binary_op = self
+                .world
+                .entity(entity)
+                .get::<BinaryOpMarker>()
+                .map(|m| m.0);
+            let unary_input_entity = self
+                .world
+                .entity(entity)
+                .get::<UnaryInput>()
+                .map(|u| u.get().entity());
+            let binary_input_entities = self
+                .world
+                .entity(entity)
+                .get::<BinaryInputs>()
+                .map(|b| (b.left.entity(), b.right.entity()));
+
+            // Base cases
+            if is_wrt {
+                derivs.insert(entity, one);
+                continue;
+            }
+            if is_input || is_const {
+                derivs.insert(entity, zero);
+                continue;
+            }
+
+            let z = Var::new(entity);
+
+            if let Some(op) = unary_op {
+                let a_entity = unary_input_entity.unwrap();
+                let a = Var::new(a_entity);
+                let da = derivs[&a_entity];
+
+                let dz = self.differentiate_unary(op, z, a, da, one);
+                derivs.insert(entity, dz);
+            } else if let Some(op) = binary_op {
+                let (a_entity, b_entity) = binary_input_entities.unwrap();
+                let a = Var::new(a_entity);
+                let b = Var::new(b_entity);
+                let da = derivs[&a_entity];
+                let db = derivs[&b_entity];
+
+                let dz = self.differentiate_binary(op, z, a, b, da, db);
+                derivs.insert(entity, dz);
+            } else {
+                derivs.insert(entity, zero);
+            }
+        }
+
+        derivs[&output.entity()]
+    }
+
+    /// Apply chain rule for a unary operation: z = op(a), given da = d(a)/d(wrt).
+    fn differentiate_unary(
+        &mut self,
+        op: UnaryOp,
+        z: Var,
+        a: Var,
+        da: Var,
+        one: Var,
+    ) -> Var {
+        match op {
+            UnaryOp::Neg => {
+                // d(-a) = -da
+                self.smart_neg(da)
+            }
+            UnaryOp::Sin => {
+                // d(sin(a)) = cos(a) * da
+                let cos_a = self.cos(a);
+                self.smart_mul(cos_a, da)
+            }
+            UnaryOp::Cos => {
+                // d(cos(a)) = -sin(a) * da
+                let sin_a = self.sin(a);
+                let neg_sin_a = self.smart_neg(sin_a);
+                self.smart_mul(neg_sin_a, da)
+            }
+            UnaryOp::Tan => {
+                // d(tan(a)) = da / cos²(a)
+                let cos_a = self.cos(a);
+                let cos2_a = self.square(cos_a);
+                self.smart_div(da, cos2_a)
+            }
+            UnaryOp::Exp => {
+                // d(exp(a)) = exp(a) * da = z * da
+                self.smart_mul(z, da)
+            }
+            UnaryOp::Ln => {
+                // d(ln(a)) = da / a
+                self.smart_div(da, a)
+            }
+            UnaryOp::Sqrt => {
+                // d(sqrt(a)) = da / (2 * sqrt(a)) = da / (2 * z)
+                let two = self.constant(2.0);
+                let two_z = self.mul(two, z);
+                self.smart_div(da, two_z)
+            }
+            UnaryOp::Sinh => {
+                // d(sinh(a)) = cosh(a) * da
+                let cosh_a = self.cosh(a);
+                self.smart_mul(cosh_a, da)
+            }
+            UnaryOp::Cosh => {
+                // d(cosh(a)) = sinh(a) * da
+                let sinh_a = self.sinh(a);
+                self.smart_mul(sinh_a, da)
+            }
+            UnaryOp::Tanh => {
+                // d(tanh(a)) = (1 - tanh²(a)) * da = (1 - z²) * da
+                let z2 = self.square(z);
+                let one_minus_z2 = self.sub(one, z2);
+                self.smart_mul(one_minus_z2, da)
+            }
+            UnaryOp::Asin => {
+                // d(asin(a)) = da / sqrt(1 - a²)
+                let a2 = self.square(a);
+                let one_minus_a2 = self.sub(one, a2);
+                let denom = self.sqrt(one_minus_a2);
+                self.smart_div(da, denom)
+            }
+            UnaryOp::Acos => {
+                // d(acos(a)) = -da / sqrt(1 - a²)
+                let a2 = self.square(a);
+                let one_minus_a2 = self.sub(one, a2);
+                let denom = self.sqrt(one_minus_a2);
+                let neg_da = self.smart_neg(da);
+                self.smart_div(neg_da, denom)
+            }
+            UnaryOp::Atan => {
+                // d(atan(a)) = da / (1 + a²)
+                let a2 = self.square(a);
+                let one_plus_a2 = self.add(one, a2);
+                self.smart_div(da, one_plus_a2)
+            }
+            UnaryOp::Asinh => {
+                // d(asinh(a)) = da / sqrt(a² + 1)
+                let a2 = self.square(a);
+                let a2_plus_1 = self.add(a2, one);
+                let denom = self.sqrt(a2_plus_1);
+                self.smart_div(da, denom)
+            }
+            UnaryOp::Acosh => {
+                // d(acosh(a)) = da / sqrt(a² - 1)
+                let a2 = self.square(a);
+                let a2_minus_1 = self.sub(a2, one);
+                let denom = self.sqrt(a2_minus_1);
+                self.smart_div(da, denom)
+            }
+            UnaryOp::Atanh => {
+                // d(atanh(a)) = da / (1 - a²)
+                let a2 = self.square(a);
+                let one_minus_a2 = self.sub(one, a2);
+                self.smart_div(da, one_minus_a2)
+            }
+        }
+    }
+
+    /// Apply chain rule for a binary operation: z = op(a, b), given da, db.
+    fn differentiate_binary(
+        &mut self,
+        op: BinaryOp,
+        z: Var,
+        a: Var,
+        b: Var,
+        da: Var,
+        db: Var,
+    ) -> Var {
+        match op {
+            BinaryOp::Add => {
+                // d(a + b) = da + db
+                self.smart_add(da, db)
+            }
+            BinaryOp::Sub => {
+                // d(a - b) = da - db
+                self.smart_sub(da, db)
+            }
+            BinaryOp::Mul => {
+                // d(a * b) = da*b + a*db
+                let term1 = self.smart_mul(da, b);
+                let term2 = self.smart_mul(a, db);
+                self.smart_add(term1, term2)
+            }
+            BinaryOp::Div => {
+                // d(a / b) = (da*b - a*db) / b²
+                let term1 = self.smart_mul(da, b);
+                let term2 = self.smart_mul(a, db);
+                let numer = self.smart_sub(term1, term2);
+                let b2 = self.square(b);
+                self.smart_div(numer, b2)
+            }
+            BinaryOp::Pow => {
+                let da_is_zero = self.is_const_value(da, 0.0);
+                let db_is_zero = self.is_const_value(db, 0.0);
+
+                if da_is_zero && db_is_zero {
+                    // Both inputs constant wrt wrt
+                    self.constant(0.0)
+                } else if db_is_zero {
+                    // d(a^b) = b * a^(b-1) * da  (b constant wrt wrt)
+                    let b_val = self.eval(b);
+                    let b_minus_1 = self.constant(b_val - 1.0);
+                    let a_pow = self.pow(a, b_minus_1);
+                    let b_times = self.smart_mul(b, a_pow);
+                    self.smart_mul(b_times, da)
+                } else if da_is_zero {
+                    // d(a^b) = a^b * ln(a) * db  (a constant wrt wrt)
+                    let ln_a = self.ln(a);
+                    let z_ln_a = self.mul(z, ln_a);
+                    self.smart_mul(z_ln_a, db)
+                } else {
+                    // d(a^b) = a^b * (db*ln(a) + b*da/a)  (general case)
+                    let ln_a = self.ln(a);
+                    let term1 = self.mul(db, ln_a);
+                    let da_over_a = self.div(da, a);
+                    let term2 = self.mul(b, da_over_a);
+                    let inner = self.add(term1, term2);
+                    self.mul(z, inner)
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // Smart Helpers (constant folding during differentiation)
+    // =========================================================================
+
+    /// Check if a Var is a constant with a specific value.
+    fn is_const_value(&self, v: Var, val: f64) -> bool {
+        self.is_constant(v) && self.eval(v) == val
+    }
+
+    /// Add with constant folding: skip if either is 0, fold if both constant.
+    fn smart_add(&mut self, a: Var, b: Var) -> Var {
+        if self.is_const_value(a, 0.0) {
+            return b;
+        }
+        if self.is_const_value(b, 0.0) {
+            return a;
+        }
+        if self.is_constant(a) && self.is_constant(b) {
+            return self.constant(self.eval(a) + self.eval(b));
+        }
+        self.add(a, b)
+    }
+
+    /// Subtract with constant folding: skip if b is 0, negate if a is 0.
+    fn smart_sub(&mut self, a: Var, b: Var) -> Var {
+        if self.is_const_value(b, 0.0) {
+            return a;
+        }
+        if self.is_const_value(a, 0.0) {
+            return self.smart_neg(b);
+        }
+        if self.is_constant(a) && self.is_constant(b) {
+            return self.constant(self.eval(a) - self.eval(b));
+        }
+        self.sub(a, b)
+    }
+
+    /// Multiply with constant folding: return 0 if either is 0, identity if 1.
+    fn smart_mul(&mut self, a: Var, b: Var) -> Var {
+        if self.is_const_value(a, 0.0) || self.is_const_value(b, 0.0) {
+            return self.constant(0.0);
+        }
+        if self.is_const_value(a, 1.0) {
+            return b;
+        }
+        if self.is_const_value(b, 1.0) {
+            return a;
+        }
+        if self.is_constant(a) && self.is_constant(b) {
+            return self.constant(self.eval(a) * self.eval(b));
+        }
+        self.mul(a, b)
+    }
+
+    /// Negate with constant folding: skip if 0, fold if constant.
+    fn smart_neg(&mut self, a: Var) -> Var {
+        if self.is_const_value(a, 0.0) {
+            return a;
+        }
+        if self.is_constant(a) {
+            return self.constant(-self.eval(a));
+        }
+        self.neg(a)
+    }
+
+    /// Divide with constant folding: return 0 if numerator is 0, identity if denom is 1.
+    fn smart_div(&mut self, a: Var, b: Var) -> Var {
+        if self.is_const_value(a, 0.0) {
+            return self.constant(0.0);
+        }
+        if self.is_const_value(b, 1.0) {
+            return a;
+        }
+        if self.is_constant(a) && self.is_constant(b) {
+            return self.constant(self.eval(a) / self.eval(b));
+        }
+        self.div(a, b)
+    }
 }
 
 impl Default for AutoDiff {
@@ -728,5 +1075,476 @@ mod tests {
     fn test_default_context() {
         let ad = AutoDiff::default();
         assert_eq!(ad.input_count(), 0);
+    }
+
+    // =========================================================================
+    // Differentiation tests
+    // =========================================================================
+
+    #[test]
+    fn test_diff_identity() {
+        // d/dx(x) = 1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let dxdx = ad.differentiate(x, x);
+        assert_eq!(ad.eval(dxdx), 1.0);
+    }
+
+    #[test]
+    fn test_diff_constant() {
+        // d/dx(c) = 0
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let c = ad.constant(5.0);
+        let dc = ad.differentiate(c, x);
+        assert_eq!(ad.eval(dc), 0.0);
+    }
+
+    #[test]
+    fn test_diff_other_input() {
+        // d/dx(y) = 0
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let y = ad.var(5.0);
+        let dy = ad.differentiate(y, x);
+        assert_eq!(ad.eval(dy), 0.0);
+    }
+
+    #[test]
+    fn test_diff_neg() {
+        // d/dx(-x) = -1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let f = ad.neg(x);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), -1.0);
+    }
+
+    #[test]
+    fn test_diff_add() {
+        // d/dx(x + c) = 1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let c = ad.constant(5.0);
+        let f = ad.add(x, c);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), 1.0);
+    }
+
+    #[test]
+    fn test_diff_sub() {
+        // d/dx(x - c) = 1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let c = ad.constant(5.0);
+        let f = ad.sub(x, c);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), 1.0);
+    }
+
+    #[test]
+    fn test_diff_mul_by_constant() {
+        // d/dx(c * x) = c
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let c = ad.constant(5.0);
+        let f = ad.mul(c, x);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), 5.0);
+    }
+
+    #[test]
+    fn test_diff_mul_two_vars() {
+        // d/dx(x * y) = y
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), 3.0);
+    }
+
+    #[test]
+    fn test_diff_div_by_constant() {
+        // d/dx(x / c) = 1/c
+        let mut ad = AutoDiff::new();
+        let x = ad.var(6.0);
+        let c = ad.constant(3.0);
+        let f = ad.div(x, c);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 1.0 / 3.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_square() {
+        // d/dx(x²) = 2x at x=3 → 6
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let f = ad.square(x);
+        let df = ad.differentiate(f, x);
+        assert_eq!(ad.eval(df), 6.0);
+    }
+
+    #[test]
+    fn test_diff_pow_const_exp() {
+        // d/dx(x^3) = 3x² at x=2 → 12
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let f = ad.powi(x, 3);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 12.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_sin() {
+        // d/dx(sin(x)) = cos(x) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.sin(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 0.5_f64.cos(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_cos() {
+        // d/dx(cos(x)) = -sin(x) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.cos(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), -(0.5_f64.sin()), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_tan() {
+        // d/dx(tan(x)) = 1/cos²(x) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.tan(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 / (0.5_f64.cos().powi(2));
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_exp() {
+        // d/dx(exp(x)) = exp(x) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.exp(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 1.0_f64.exp(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_ln() {
+        // d/dx(ln(x)) = 1/x at x=2
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let f = ad.ln(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 0.5, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_sqrt() {
+        // d/dx(sqrt(x)) = 1/(2*sqrt(x)) at x=4 → 0.25
+        let mut ad = AutoDiff::new();
+        let x = ad.var(4.0);
+        let f = ad.sqrt(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 0.25, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_sinh() {
+        // d/dx(sinh(x)) = cosh(x) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.sinh(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 1.0_f64.cosh(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_cosh() {
+        // d/dx(cosh(x)) = sinh(x) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.cosh(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 1.0_f64.sinh(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_tanh() {
+        // d/dx(tanh(x)) = 1 - tanh²(x) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.tanh(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 - 0.5_f64.tanh().powi(2);
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_asin() {
+        // d/dx(asin(x)) = 1/sqrt(1-x²) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.asin(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 / (1.0 - 0.25_f64).sqrt();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_acos() {
+        // d/dx(acos(x)) = -1/sqrt(1-x²) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.acos(x);
+        let df = ad.differentiate(f, x);
+        let expected = -1.0 / (1.0 - 0.25_f64).sqrt();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_atan() {
+        // d/dx(atan(x)) = 1/(1+x²) at x=1 → 0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.atan(x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 0.5, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_asinh() {
+        // d/dx(asinh(x)) = 1/sqrt(x²+1) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.asinh(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 / (2.0_f64).sqrt();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_acosh() {
+        // d/dx(acosh(x)) = 1/sqrt(x²-1) at x=2
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let f = ad.acosh(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 / (3.0_f64).sqrt();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_atanh() {
+        // d/dx(atanh(x)) = 1/(1-x²) at x=0.5 → 1/0.75
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let f = ad.atanh(x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0 / (1.0 - 0.25);
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_chain_rule() {
+        // d/dx(sin(x²)) = 2x * cos(x²) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let x2 = ad.square(x);
+        let f = ad.sin(x2);
+        let df = ad.differentiate(f, x);
+        let expected = 2.0 * 1.0_f64.cos(); // 2*1 * cos(1)
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_product_rule() {
+        // d/dx(x * sin(x)) = sin(x) + x * cos(x) at x=1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let sin_x = ad.sin(x);
+        let f = ad.mul(x, sin_x);
+        let df = ad.differentiate(f, x);
+        let expected = 1.0_f64.sin() + 1.0 * 1.0_f64.cos();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_quotient_rule() {
+        // d/dx(sin(x)/x) = (cos(x)*x - sin(x)) / x² at x=2
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let sin_x = ad.sin(x);
+        let f = ad.div(sin_x, x);
+        let df = ad.differentiate(f, x);
+        let expected = (2.0_f64.cos() * 2.0 - 2.0_f64.sin()) / 4.0;
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_second_derivative() {
+        // d²/dx²(x³) = 6x at x=2 → 12
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let f = ad.powi(x, 3);
+        let df = ad.differentiate(f, x);
+        let d2f = ad.differentiate(df, x);
+        assert_relative_eq!(ad.eval(d2f), 12.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_third_derivative() {
+        // d³/dx³(x⁴) = 24x at x=1 → 24
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let f = ad.powi(x, 4);
+        let df = ad.differentiate(f, x);
+        let d2f = ad.differentiate(df, x);
+        let d3f = ad.differentiate(d2f, x);
+        assert_relative_eq!(ad.eval(d3f), 24.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_mixed_partial() {
+        // d²/dxdy(x * y) = 1
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+        let dfdx = ad.differentiate(f, x);
+        let d2fdxdy = ad.differentiate(dfdx, y);
+        assert_relative_eq!(ad.eval(d2fdxdy), 1.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_mixed_partial_symmetry() {
+        // d²f/dxdy = d²f/dydx for f = x² * y + y³
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let y = ad.var(2.0);
+
+        let x2 = ad.square(x);
+        let x2y = ad.mul(x2, y);
+        let y2 = ad.square(y);
+        let y3 = ad.mul(y, y2);
+        let f = ad.add(x2y, y3);
+
+        let dfdx = ad.differentiate(f, x);
+        let d2fdxdy = ad.differentiate(dfdx, y);
+
+        let dfdy = ad.differentiate(f, y);
+        let d2fdydx = ad.differentiate(dfdy, x);
+
+        assert_relative_eq!(ad.eval(d2fdxdy), ad.eval(d2fdydx), epsilon = 1e-10);
+        // d²f/dxdy = 2x at (1,2) → 2
+        assert_relative_eq!(ad.eval(d2fdxdy), 2.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_exp_chain() {
+        // d/dx(exp(sin(x))) = exp(sin(x)) * cos(x) at x=0.5
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let sin_x = ad.sin(x);
+        let f = ad.exp(sin_x);
+        let df = ad.differentiate(f, x);
+        let expected = (0.5_f64.sin()).exp() * 0.5_f64.cos();
+        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_polynomial() {
+        // f = x³ + 2x² + 3x + 4
+        // f'= 3x² + 4x + 3
+        // At x=2: f' = 12 + 8 + 3 = 23
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let c4 = ad.constant(4.0);
+        let c3 = ad.constant(3.0);
+        let c2 = ad.constant(2.0);
+
+        let x2 = ad.square(x);
+        let x3 = ad.mul(x2, x);
+        let term2 = ad.mul(c2, x2);
+        let term1 = ad.mul(c3, x);
+
+        let sum0 = ad.add(term1, c4);
+        let sum1 = ad.add(term2, sum0);
+        let f = ad.add(x3, sum1);
+
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 23.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_rosenbrock() {
+        // f = (1-x)² + 100(y-x²)²
+        // df/dx = -2(1-x) + 100 * 2(y-x²) * (-2x) = 2(x-1) - 400x(y-x²)
+        // At (1,1): df/dx = 0
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let y = ad.var(1.0);
+        let one = ad.constant(1.0);
+        let hundred = ad.constant(100.0);
+
+        let one_minus_x = ad.sub(one, x);
+        let term1 = ad.square(one_minus_x);
+        let x_sq = ad.square(x);
+        let y_minus_x_sq = ad.sub(y, x_sq);
+        let term2_inner = ad.square(y_minus_x_sq);
+        let term2 = ad.mul(hundred, term2_inner);
+        let f = ad.add(term1, term2);
+
+        let dfdx = ad.differentiate(f, x);
+        let dfdy = ad.differentiate(f, y);
+
+        assert_relative_eq!(ad.eval(dfdx), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdy), 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_rosenbrock_away_from_min() {
+        // f = (1-x)² + 100(y-x²)²
+        // df/dx = 2(x-1) - 400x(y-x²)
+        // df/dy = 200(y-x²)
+        // At (0,0): df/dx = -2, df/dy = 0
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.0);
+        let y = ad.var(0.0);
+        let one = ad.constant(1.0);
+        let hundred = ad.constant(100.0);
+
+        let one_minus_x = ad.sub(one, x);
+        let term1 = ad.square(one_minus_x);
+        let x_sq = ad.square(x);
+        let y_minus_x_sq = ad.sub(y, x_sq);
+        let term2_inner = ad.square(y_minus_x_sq);
+        let term2 = ad.mul(hundred, term2_inner);
+        let f = ad.add(term1, term2);
+
+        let dfdx = ad.differentiate(f, x);
+        let dfdy = ad.differentiate(f, y);
+
+        assert_relative_eq!(ad.eval(dfdx), -2.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdy), 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_diff_constant_folding() {
+        // Verify that differentiating a constant wrt x produces a
+        // constant entity, not just a value of 0
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let c = ad.constant(5.0);
+        let dc = ad.differentiate(c, x);
+        assert!(ad.is_constant(dc));
+        assert_eq!(ad.eval(dc), 0.0);
     }
 }
