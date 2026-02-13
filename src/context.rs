@@ -6,18 +6,11 @@ use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
 use crate::components::{
-    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value, Variable,
+    BinaryInputs, BinaryOp, BinaryOpMarker, Dependencies, IsConstant, IsInput, UnaryInput,
+    UnaryOp, UnaryOpMarker, Value, Variable,
 };
 use crate::graph::topology::topological_order;
 use crate::var::Var;
-
-/// Component marker for unary operations (stores the operation type).
-#[derive(bevy_ecs::component::Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnaryOpMarker(pub UnaryOp);
-
-/// Component marker for binary operations (stores the operation type).
-#[derive(bevy_ecs::component::Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BinaryOpMarker(pub BinaryOp);
 
 /// The main autodiff context for building and evaluating computation graphs.
 ///
@@ -82,6 +75,10 @@ impl AutoDiff {
     /// Derivatives are computed with respect to these inputs.
     pub fn var(&mut self, value: f64) -> Var {
         let input_index = self.input_count;
+        assert!(
+            input_index < 64,
+            "bevy_autodiff supports at most 64 input variables (Dependencies uses a u64 bitmask)"
+        );
         self.input_count += 1;
 
         let entity = self
@@ -117,11 +114,13 @@ impl AutoDiff {
         Var::new(entity)
     }
 
-    /// Evaluates a variable, returning its current numerical value.
+    /// Evaluates a variable, returning its stored numerical value.
     ///
-    /// For input variables, this returns the stored value.
-    /// For computed variables, this returns the result of propagating
-    /// values through the graph.
+    /// For input variables, this returns the value set by [`var()`](Self::var) or
+    /// [`set_input()`](Self::set_input). For computed variables, this returns the
+    /// value computed at graph-construction time — it is **not** re-evaluated when
+    /// inputs change. To re-evaluate at new input values, use
+    /// [`CompiledGraph::eval()`](crate::compiled::CompiledGraph::eval).
     pub fn eval(&self, var: Var) -> f64 {
         self.world
             .entity(var.entity())
@@ -144,7 +143,7 @@ impl AutoDiff {
 
         // Update value
         if let Some(mut val) = self.world.entity_mut(entity).get_mut::<Value>() {
-            val.0 = value;
+            val.set(value);
         }
     }
 
@@ -415,6 +414,22 @@ impl AutoDiff {
             .unwrap_or(false)
     }
 
+    /// Gathers current values of all input variables.
+    fn gather_input_values(&self) -> Vec<f64> {
+        self.inputs.iter().map(|&v| self.eval(v)).collect()
+    }
+
+    /// Returns the position of `var` in `self.inputs`.
+    ///
+    /// # Panics
+    /// Panics if `var` is not an input variable in this context.
+    fn input_index(&self, var: Var) -> usize {
+        self.inputs
+            .iter()
+            .position(|&v| v == var)
+            .expect("Variable is not an input in this context")
+    }
+
     /// Sets multiple input values at once.
     ///
     /// # Panics
@@ -467,12 +482,12 @@ impl AutoDiff {
                 .world
                 .entity(entity)
                 .get::<UnaryOpMarker>()
-                .map(|m| m.0);
+                .map(|m| m.op());
             let binary_op = self
                 .world
                 .entity(entity)
                 .get::<BinaryOpMarker>()
-                .map(|m| m.0);
+                .map(|m| m.op());
             let unary_input_entity = self
                 .world
                 .entity(entity)
@@ -660,8 +675,12 @@ impl AutoDiff {
                     self.constant(0.0)
                 } else if db_is_zero {
                     // d(a^b) = b * a^(b-1) * da  (b constant wrt wrt)
-                    let b_val = self.eval(b);
-                    let b_minus_1 = self.constant(b_val - 1.0);
+                    // Special case: b == 0 means d(a^0)/d(wrt) = d(1)/d(wrt) = 0
+                    if self.is_const_value(b, 0.0) {
+                        return self.constant(0.0);
+                    }
+                    let one = self.constant(1.0);
+                    let b_minus_1 = self.sub(b, one);
                     let a_pow = self.pow(a, b_minus_1);
                     let b_times = self.smart_mul(b, a_pow);
                     self.smart_mul(b_times, da)
@@ -689,7 +708,14 @@ impl AutoDiff {
 
     /// Computes the n-th derivative of `output` with respect to `input`.
     ///
-    /// Applies `differentiate()` `order` times, then evaluates.
+    /// Internally compiles to a [`CompiledGraph`](crate::compiled::CompiledGraph)
+    /// and evaluates at the current input values, so results are correct
+    /// even after calling [`set_input()`](Self::set_input).
+    ///
+    /// **Note:** Each call creates new derivative entities in the ECS world that
+    /// are not cleaned up. For repeated evaluation at different points, use
+    /// [`compile()`](Self::compile) or [`compile_order()`](Self::compile_order)
+    /// to build the graph once and re-evaluate many times.
     ///
     /// ```
     /// # use bevy_autodiff::AutoDiff;
@@ -702,11 +728,17 @@ impl AutoDiff {
     /// assert_eq!(ad.derivative(f, x, 3), 6.0);  // 6
     /// ```
     pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> f64 {
-        let mut current = output;
-        for _ in 0..order {
-            current = self.differentiate(current, input);
+        if order == 0 {
+            return self.eval(output);
         }
-        self.eval(current)
+        let all_inputs: Vec<Var> = self.inputs.clone();
+        let idx = self.input_index(input);
+        let mut multi_index = vec![0usize; all_inputs.len()];
+        multi_index[idx] = order;
+        let mut cg = self.compile(output, &all_inputs, &[multi_index.clone()]);
+        let values = self.gather_input_values();
+        cg.eval(&values);
+        cg.partial(&multi_index)
     }
 
     /// Computes a mixed partial derivative specified by a multi-index.
@@ -714,6 +746,10 @@ impl AutoDiff {
     /// `multi_index[i]` is the number of times to differentiate with respect
     /// to `inputs[i]`. For example, `multi_index = [2, 1]` computes
     /// d³f / (dx² dy).
+    ///
+    /// Internally compiles to a [`CompiledGraph`](crate::compiled::CompiledGraph)
+    /// and evaluates at the current input values, so results are correct
+    /// even after calling [`set_input()`](Self::set_input).
     ///
     /// ```
     /// # use bevy_autodiff::AutoDiff;
@@ -732,18 +768,32 @@ impl AutoDiff {
             inputs.len(),
             "multi_index and inputs must have the same length"
         );
-        let mut current = output;
+        let total_order: usize = multi_index.iter().sum();
+        if total_order == 0 {
+            return self.eval(output);
+        }
+        let all_inputs: Vec<Var> = self.inputs.clone();
+        // Map user-provided multi_index to full multi-index over all inputs
+        let mut full_mi = vec![0usize; all_inputs.len()];
         for (i, &count) in multi_index.iter().enumerate() {
-            for _ in 0..count {
-                current = self.differentiate(current, inputs[i]);
+            if count > 0 {
+                let idx = self.input_index(inputs[i]);
+                full_mi[idx] += count;
             }
         }
-        self.eval(current)
+        let mut cg = self.compile(output, &all_inputs, &[full_mi.clone()]);
+        let values = self.gather_input_values();
+        cg.eval(&values);
+        cg.partial(&full_mi)
     }
 
     /// Computes the gradient of `output` with respect to all input variables.
     ///
     /// Returns a vector of partial derivatives in input creation order.
+    ///
+    /// Internally compiles to a [`CompiledGraph`](crate::compiled::CompiledGraph)
+    /// and evaluates at the current input values, so results are correct
+    /// even after calling [`set_input()`](Self::set_input).
     ///
     /// ```
     /// # use bevy_autodiff::AutoDiff;
@@ -758,14 +808,22 @@ impl AutoDiff {
     /// assert_eq!(grad, vec![2.0, 4.0]); // [2x, 2y]
     /// ```
     pub fn gradient(&mut self, output: Var) -> Vec<f64> {
-        let inputs: Vec<Var> = self.inputs.clone();
-        inputs
-            .iter()
-            .map(|&input| {
-                let dvar = self.differentiate(output, input);
-                self.eval(dvar)
+        let all_inputs: Vec<Var> = self.inputs.clone();
+        let n = all_inputs.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let partials: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                let mut mi = vec![0usize; n];
+                mi[i] = 1;
+                mi
             })
-            .collect()
+            .collect();
+        let mut cg = self.compile(output, &all_inputs, &partials);
+        let values = self.gather_input_values();
+        cg.eval(&values);
+        partials.iter().map(|mi| cg.partial(mi)).collect()
     }
 
     // =========================================================================
@@ -855,6 +913,11 @@ impl AutoDiff {
     // =========================================================================
 
     /// Check if a Var is a constant with a specific value.
+    ///
+    /// Uses `==` (bitwise f64 equality), which means `is_const_value(v, 0.0)`
+    /// returns `false` for NaN. This is intentional: the smart_* helpers use it
+    /// to fold identities like `0 * x → 0`, which deliberately deviates from
+    /// IEEE 754 (where `0 * NaN = NaN`). See smart_mul / smart_div doc comments.
     fn is_const_value(&self, v: Var, val: f64) -> bool {
         self.is_constant(v) && self.eval(v) == val
     }
@@ -888,6 +951,11 @@ impl AutoDiff {
     }
 
     /// Multiply with constant folding: return 0 if either is 0, identity if 1.
+    ///
+    /// Note: This deliberately deviates from IEEE 754 semantics where 0.0 * NaN = NaN
+    /// and 0.0 * Inf = NaN. In symbolic differentiation, folding 0 * (anything) = 0
+    /// is correct because a zero derivative means the branch does not contribute,
+    /// regardless of the other factor's value at the evaluation point.
     fn smart_mul(&mut self, a: Var, b: Var) -> Var {
         if self.is_const_value(a, 0.0) || self.is_const_value(b, 0.0) {
             return self.constant(0.0);
@@ -916,6 +984,11 @@ impl AutoDiff {
     }
 
     /// Divide with constant folding: return 0 if numerator is 0, identity if denom is 1.
+    ///
+    /// Note: Like smart_mul, this deliberately deviates from IEEE 754 where 0.0/0.0 = NaN.
+    /// In symbolic differentiation, a zero numerator means the derivative term is zero
+    /// regardless of the denominator. This prevents NaN poisoning the derivative graph
+    /// when subexpressions hit domain boundaries.
     fn smart_div(&mut self, a: Var, b: Var) -> Var {
         if self.is_const_value(a, 0.0) {
             return self.constant(0.0);
@@ -1819,5 +1892,53 @@ mod tests {
         assert_relative_eq!(cg.value(), ecs_val, epsilon = 1e-10);
         assert_relative_eq!(cg.partial(&[1, 0]), ecs_dfdx, epsilon = 1e-10);
         assert_relative_eq!(cg.partial(&[0, 1]), ecs_dfdy, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_pow_variable_exponent_compiled() {
+        // f(x,y) = x^y, df/dx = y * x^(y-1), df/dy = x^y * ln(x)
+        // Verify that the derivative graph is symbolic in y (not frozen at compile-time y).
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.pow(x, y);
+
+        let mut cg = ad.compile_order(f, &[x, y], 1);
+
+        // At (x=2, y=3): f = 8, df/dx = 3*4 = 12, df/dy = 8*ln(2)
+        cg.eval(&[2.0, 3.0]);
+        assert_relative_eq!(cg.value(), 8.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]), 12.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]), 8.0 * 2.0_f64.ln(), epsilon = 1e-10);
+
+        // Re-evaluate at (x=3, y=2): f = 9, df/dx = 2*3 = 6, df/dy = 9*ln(3)
+        cg.eval(&[3.0, 2.0]);
+        assert_relative_eq!(cg.value(), 9.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]), 6.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]), 9.0 * 3.0_f64.ln(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_smart_mul_nan_folding() {
+        // smart_mul (used during differentiation) folds 0 * x → 0, even if
+        // x could be NaN. This is a deliberate deviation from IEEE 754 (where
+        // 0 * NaN = NaN) because in symbolic differentiation, zero derivative
+        // terms are structurally zero.
+        //
+        // Exercise this via differentiate: d/dy(x) = 0 (constant-folded).
+        // The chain rule produces 0 * (something), and smart_mul folds it.
+        let mut ad = AutoDiff::new();
+        let x = ad.var(f64::NAN);
+        let y = ad.var(1.0);
+
+        // f = x + y; df/dx at x=NaN should still be the constant 1
+        // (smart_mul folds 0*... terms, smart_add collapses 0+1 → 1)
+        let f = ad.add(x, y);
+        let df_dy = ad.differentiate(f, y);
+        assert!(
+            ad.is_constant(df_dy),
+            "d(x+y)/dy should be constant-folded to 1"
+        );
+        assert_eq!(ad.eval(df_dy), 1.0);
     }
 }

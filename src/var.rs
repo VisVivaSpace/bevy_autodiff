@@ -63,13 +63,6 @@ impl Hash for Var {
     }
 }
 
-impl From<Entity> for Var {
-    #[inline]
-    fn from(entity: Entity) -> Self {
-        Self::new(entity)
-    }
-}
-
 impl From<Var> for Entity {
     #[inline]
     fn from(var: Var) -> Self {
@@ -151,7 +144,7 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn_empty().id();
 
-        let var = Var::from(entity);
+        let var = Var::new(entity);
         let back: Entity = var.into();
 
         assert_eq!(entity, back);

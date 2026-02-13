@@ -9,8 +9,8 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::collections::HashMap;
 
-use crate::components::{BinaryInputs, IsConstant, IsInput, Value};
-use crate::context::{BinaryOpMarker, UnaryOpMarker};
+use crate::components::{BinaryInputs, BinaryOp, IsConstant, IsInput, UnaryOp, Value};
+use crate::components::{BinaryOpMarker, UnaryOpMarker};
 use crate::graph::topological_order;
 use crate::var::Var;
 
@@ -37,15 +37,15 @@ pub enum SimplifyResult {
 /// - Division: x / 1 = x, 0 / x = 0 (if x != 0)
 pub fn simplify_binary(
     world: &World,
-    op_name: &str,
+    op: BinaryOp,
     left: Entity,
     right: Entity,
 ) -> SimplifyResult {
     let left_const = get_constant_value(world, left);
     let right_const = get_constant_value(world, right);
 
-    match op_name {
-        "add" => {
+    match op {
+        BinaryOp::Add => {
             // x + 0 = x
             if right_const == Some(0.0) {
                 return SimplifyResult::UseLeft;
@@ -59,7 +59,7 @@ pub fn simplify_binary(
                 return SimplifyResult::Constant(l + r);
             }
         }
-        "sub" => {
+        BinaryOp::Sub => {
             // x - 0 = x
             if right_const == Some(0.0) {
                 return SimplifyResult::UseLeft;
@@ -73,7 +73,7 @@ pub fn simplify_binary(
                 return SimplifyResult::Constant(l - r);
             }
         }
-        "mul" => {
+        BinaryOp::Mul => {
             // x * 0 = 0
             if right_const == Some(0.0) {
                 return SimplifyResult::Constant(0.0);
@@ -95,7 +95,7 @@ pub fn simplify_binary(
                 return SimplifyResult::Constant(l * r);
             }
         }
-        "div" => {
+        BinaryOp::Div => {
             // x / 1 = x
             if right_const == Some(1.0) {
                 return SimplifyResult::UseLeft;
@@ -115,7 +115,20 @@ pub fn simplify_binary(
                 }
             }
         }
-        _ => {}
+        BinaryOp::Pow => {
+            // x^0 = 1
+            if right_const == Some(0.0) {
+                return SimplifyResult::Constant(1.0);
+            }
+            // x^1 = x
+            if right_const == Some(1.0) {
+                return SimplifyResult::UseLeft;
+            }
+            // Fold constants
+            if let (Some(l), Some(r)) = (left_const, right_const) {
+                return SimplifyResult::Constant(l.powf(r));
+            }
+        }
     }
 
     SimplifyResult::Keep
@@ -138,11 +151,11 @@ fn get_constant_value(world: &World, entity: Entity) -> Option<f64> {
 /// - neg(neg(x)) = x (double negation)
 /// - exp(0) = 1, ln(1) = 0, sqrt(1) = 1
 /// - sin(0) = 0, cos(0) = 1
-pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyResult {
+pub fn simplify_unary(world: &World, op: UnaryOp, input: Entity) -> SimplifyResult {
     let input_const = get_constant_value(world, input);
 
-    match op_name {
-        "neg" => {
+    match op {
+        UnaryOp::Neg => {
             // neg(0) = 0
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(0.0);
@@ -152,7 +165,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(-v);
             }
         }
-        "exp" => {
+        UnaryOp::Exp => {
             // exp(0) = 1
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(1.0);
@@ -162,7 +175,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(v.exp());
             }
         }
-        "ln" => {
+        UnaryOp::Ln => {
             // ln(1) = 0
             if input_const == Some(1.0) {
                 return SimplifyResult::Constant(0.0);
@@ -174,7 +187,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 }
             }
         }
-        "sqrt" => {
+        UnaryOp::Sqrt => {
             // sqrt(0) = 0
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(0.0);
@@ -190,7 +203,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 }
             }
         }
-        "sin" => {
+        UnaryOp::Sin => {
             // sin(0) = 0
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(0.0);
@@ -200,7 +213,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(v.sin());
             }
         }
-        "cos" => {
+        UnaryOp::Cos => {
             // cos(0) = 1
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(1.0);
@@ -210,7 +223,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(v.cos());
             }
         }
-        "sinh" => {
+        UnaryOp::Sinh => {
             // sinh(0) = 0
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(0.0);
@@ -220,7 +233,7 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(v.sinh());
             }
         }
-        "cosh" => {
+        UnaryOp::Cosh => {
             // cosh(0) = 1
             if input_const == Some(0.0) {
                 return SimplifyResult::Constant(1.0);
@@ -230,7 +243,12 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
                 return SimplifyResult::Constant(v.cosh());
             }
         }
-        _ => {}
+        // No special simplifications for remaining ops, but fold constants
+        _ => {
+            if let Some(v) = input_const {
+                return SimplifyResult::Constant(crate::compiled::apply_unary_value(op, v));
+            }
+        }
     }
 
     SimplifyResult::Keep
@@ -241,35 +259,35 @@ pub fn simplify_unary(world: &World, op_name: &str, input: Entity) -> SimplifyRe
 /// Two operations with the same signature can be merged.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OpSignature {
-    /// Unary operation with (op_name, input_entity)
-    Unary(&'static str, Entity),
-    /// Binary operation with (op_name, left_entity, right_entity)
-    Binary(&'static str, Entity, Entity),
+    /// Unary operation with (op, input_entity)
+    Unary(UnaryOp, Entity),
+    /// Binary operation with (op, left_entity, right_entity)
+    Binary(BinaryOp, Entity, Entity),
     /// Binary operation that is commutative (uses sorted entity order)
-    CommutativeBinary(&'static str, Entity, Entity),
+    CommutativeBinary(BinaryOp, Entity, Entity),
 }
 
 impl OpSignature {
     /// Creates a signature for a unary operation.
-    pub fn unary(op_name: &'static str, input: Entity) -> Self {
-        Self::Unary(op_name, input)
+    pub fn unary(op: UnaryOp, input: Entity) -> Self {
+        Self::Unary(op, input)
     }
 
     /// Creates a signature for a binary operation.
     ///
-    /// For commutative operations (add, mul), normalizes the order.
-    pub fn binary(op_name: &'static str, left: Entity, right: Entity) -> Self {
-        match op_name {
-            "add" | "mul" => {
+    /// For commutative operations (Add, Mul), normalizes the order.
+    pub fn binary(op: BinaryOp, left: Entity, right: Entity) -> Self {
+        match op {
+            BinaryOp::Add | BinaryOp::Mul => {
                 // Normalize order for commutative operations
                 let (a, b) = if left.index() <= right.index() {
                     (left, right)
                 } else {
                     (right, left)
                 };
-                Self::CommutativeBinary(op_name, a, b)
+                Self::CommutativeBinary(op, a, b)
             }
-            _ => Self::Binary(op_name, left, right),
+            _ => Self::Binary(op, left, right),
         }
     }
 }
@@ -318,18 +336,18 @@ pub fn build_cse_table(world: &World, output: Var) -> CseTable {
         }
 
         // Register unary operations
-        if let Some(op) = entity_ref.get::<UnaryOpMarker>() {
+        if let Some(marker) = entity_ref.get::<UnaryOpMarker>() {
             if let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
-                let sig = OpSignature::unary(op.0.name(), input.get().entity());
+                let sig = OpSignature::unary(marker.op(), input.get().entity());
                 table.register(sig, entity);
             }
         }
 
         // Register binary operations
-        if let Some(op) = entity_ref.get::<BinaryOpMarker>() {
+        if let Some(marker) = entity_ref.get::<BinaryOpMarker>() {
             if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
                 let sig =
-                    OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
+                    OpSignature::binary(marker.op(), inputs.left.entity(), inputs.right.entity());
                 table.register(sig, entity);
             }
         }
@@ -352,17 +370,17 @@ pub fn count_cse_opportunities(world: &World, output: Var) -> usize {
             continue;
         }
 
-        if let Some(op) = entity_ref.get::<UnaryOpMarker>() {
+        if let Some(marker) = entity_ref.get::<UnaryOpMarker>() {
             if let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
-                let sig = OpSignature::unary(op.0.name(), input.get().entity());
+                let sig = OpSignature::unary(marker.op(), input.get().entity());
                 *signatures.entry(sig).or_insert(0) += 1;
             }
         }
 
-        if let Some(op) = entity_ref.get::<BinaryOpMarker>() {
+        if let Some(marker) = entity_ref.get::<BinaryOpMarker>() {
             if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
                 let sig =
-                    OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
+                    OpSignature::binary(marker.op(), inputs.left.entity(), inputs.right.entity());
                 *signatures.entry(sig).or_insert(0) += 1;
             }
         }
@@ -388,11 +406,11 @@ mod tests {
         let zero = ad.constant(0.0);
 
         // x + 0 = x
-        let result = simplify_binary(ad.world(), "add", x.entity(), zero.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Add, x.entity(), zero.entity());
         assert_eq!(result, SimplifyResult::UseLeft);
 
         // 0 + x = x
-        let result = simplify_binary(ad.world(), "add", zero.entity(), x.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Add, zero.entity(), x.entity());
         assert_eq!(result, SimplifyResult::UseRight);
     }
 
@@ -404,15 +422,15 @@ mod tests {
         let one = ad.constant(1.0);
 
         // x * 0 = 0
-        let result = simplify_binary(ad.world(), "mul", x.entity(), zero.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Mul, x.entity(), zero.entity());
         assert_eq!(result, SimplifyResult::Constant(0.0));
 
         // x * 1 = x
-        let result = simplify_binary(ad.world(), "mul", x.entity(), one.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Mul, x.entity(), one.entity());
         assert_eq!(result, SimplifyResult::UseLeft);
 
         // 1 * x = x
-        let result = simplify_binary(ad.world(), "mul", one.entity(), x.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Mul, one.entity(), x.entity());
         assert_eq!(result, SimplifyResult::UseRight);
     }
 
@@ -422,7 +440,7 @@ mod tests {
         let x = ad.var(5.0);
 
         // x - x = 0
-        let result = simplify_binary(ad.world(), "sub", x.entity(), x.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Sub, x.entity(), x.entity());
         assert_eq!(result, SimplifyResult::Constant(0.0));
     }
 
@@ -433,11 +451,11 @@ mod tests {
         let b = ad.constant(4.0);
 
         // 3 + 4 = 7
-        let result = simplify_binary(ad.world(), "add", a.entity(), b.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Add, a.entity(), b.entity());
         assert_eq!(result, SimplifyResult::Constant(7.0));
 
         // 3 * 4 = 12
-        let result = simplify_binary(ad.world(), "mul", a.entity(), b.entity());
+        let result = simplify_binary(ad.world(), BinaryOp::Mul, a.entity(), b.entity());
         assert_eq!(result, SimplifyResult::Constant(12.0));
     }
 
@@ -449,25 +467,25 @@ mod tests {
 
         // exp(0) = 1
         assert_eq!(
-            simplify_unary(ad.world(), "exp", zero.entity()),
+            simplify_unary(ad.world(), UnaryOp::Exp, zero.entity()),
             SimplifyResult::Constant(1.0)
         );
 
         // ln(1) = 0
         assert_eq!(
-            simplify_unary(ad.world(), "ln", one.entity()),
+            simplify_unary(ad.world(), UnaryOp::Ln, one.entity()),
             SimplifyResult::Constant(0.0)
         );
 
         // sin(0) = 0
         assert_eq!(
-            simplify_unary(ad.world(), "sin", zero.entity()),
+            simplify_unary(ad.world(), UnaryOp::Sin, zero.entity()),
             SimplifyResult::Constant(0.0)
         );
 
         // cos(0) = 1
         assert_eq!(
-            simplify_unary(ad.world(), "cos", zero.entity()),
+            simplify_unary(ad.world(), UnaryOp::Cos, zero.entity()),
             SimplifyResult::Constant(1.0)
         );
     }
@@ -481,13 +499,13 @@ mod tests {
         let e2 = Entity::from_raw(2);
         let e3 = Entity::from_raw(3);
 
-        let sig1 = OpSignature::binary("add", e1, e2);
+        let sig1 = OpSignature::binary(BinaryOp::Add, e1, e2);
         table.register(sig1.clone(), e3);
 
         assert_eq!(table.find(&sig1), Some(e3));
 
         // Commutative operations should match regardless of order
-        let sig2 = OpSignature::binary("add", e2, e1);
+        let sig2 = OpSignature::binary(BinaryOp::Add, e2, e1);
         assert_eq!(table.find(&sig2), Some(e3));
     }
 
@@ -497,18 +515,18 @@ mod tests {
         let e2 = Entity::from_raw(2);
 
         // add(e1, e2) should equal add(e2, e1)
-        let sig1 = OpSignature::binary("add", e1, e2);
-        let sig2 = OpSignature::binary("add", e2, e1);
+        let sig1 = OpSignature::binary(BinaryOp::Add, e1, e2);
+        let sig2 = OpSignature::binary(BinaryOp::Add, e2, e1);
         assert_eq!(sig1, sig2);
 
         // mul(e1, e2) should equal mul(e2, e1)
-        let sig3 = OpSignature::binary("mul", e1, e2);
-        let sig4 = OpSignature::binary("mul", e2, e1);
+        let sig3 = OpSignature::binary(BinaryOp::Mul, e1, e2);
+        let sig4 = OpSignature::binary(BinaryOp::Mul, e2, e1);
         assert_eq!(sig3, sig4);
 
         // sub(e1, e2) should NOT equal sub(e2, e1)
-        let sig5 = OpSignature::binary("sub", e1, e2);
-        let sig6 = OpSignature::binary("sub", e2, e1);
+        let sig5 = OpSignature::binary(BinaryOp::Sub, e1, e2);
+        let sig6 = OpSignature::binary(BinaryOp::Sub, e2, e1);
         assert_ne!(sig5, sig6);
     }
 
@@ -536,7 +554,7 @@ mod tests {
         let table = build_cse_table(ad.world(), y);
 
         // The mul operation should be registered
-        let sig = OpSignature::binary("mul", x.entity(), x.entity());
+        let sig = OpSignature::binary(BinaryOp::Mul, x.entity(), x.entity());
         assert!(table.find(&sig).is_some());
     }
 }

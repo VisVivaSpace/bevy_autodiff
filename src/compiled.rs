@@ -12,9 +12,10 @@ use std::collections::HashMap;
 
 use bevy_ecs::entity::Entity;
 
-use crate::components::{BinaryInputs, UnaryInput};
-use crate::components::{BinaryOp, IsConstant, IsInput, UnaryOp, Value};
-use crate::context::{BinaryOpMarker, UnaryOpMarker};
+use crate::components::{
+    BinaryInputs, BinaryOp, BinaryOpMarker, IsConstant, IsInput, UnaryInput, UnaryOp,
+    UnaryOpMarker, Value,
+};
 
 /// A node in the flattened computation graph.
 #[derive(Clone, Copy, Debug)]
@@ -44,6 +45,7 @@ pub struct CompiledGraph {
     num_inputs: usize,
     output_index: usize,
     partial_outputs: Vec<(Vec<usize>, usize)>,
+    partial_lookup: HashMap<Vec<usize>, usize>,
     values: Vec<f64>,
 }
 
@@ -56,11 +58,16 @@ impl CompiledGraph {
         partial_outputs: Vec<(Vec<usize>, usize)>,
     ) -> Self {
         let num_nodes = nodes.len();
+        let partial_lookup: HashMap<Vec<usize>, usize> = partial_outputs
+            .iter()
+            .map(|(mi, idx)| (mi.clone(), *idx))
+            .collect();
         Self {
             nodes,
             num_inputs,
             output_index,
             partial_outputs,
+            partial_lookup,
             values: vec![0.0; num_nodes],
         }
     }
@@ -102,10 +109,8 @@ impl CompiledGraph {
     /// # Panics
     /// Panics if the requested partial was not compiled.
     pub fn partial(&self, multi_index: &[usize]) -> f64 {
-        for (mi, idx) in &self.partial_outputs {
-            if mi.as_slice() == multi_index {
-                return self.values[*idx];
-            }
+        if let Some(&idx) = self.partial_lookup.get(multi_index) {
+            return self.values[idx];
         }
         panic!(
             "Partial {:?} was not compiled. Available: {:?}",
@@ -203,13 +208,13 @@ fn generate_helper(
     n: usize,
     max_total: usize,
     pos: usize,
-    current: &mut Vec<usize>,
+    current: &mut [usize],
     result: &mut Vec<Vec<usize>>,
 ) {
     if pos == n {
         let total: usize = current.iter().sum();
         if total > 0 && total <= max_total {
-            result.push(current.clone());
+            result.push(current.to_vec());
         }
         return;
     }
@@ -225,7 +230,7 @@ fn generate_helper(
 // =============================================================================
 
 /// Apply a unary operation to a value.
-pub fn apply_unary_value(op: UnaryOp, x: f64) -> f64 {
+pub(crate) fn apply_unary_value(op: UnaryOp, x: f64) -> f64 {
     match op {
         UnaryOp::Neg => -x,
         UnaryOp::Sin => x.sin(),
@@ -247,7 +252,7 @@ pub fn apply_unary_value(op: UnaryOp, x: f64) -> f64 {
 }
 
 /// Apply a binary operation to two values.
-pub fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
+pub(crate) fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
     match op {
         BinaryOp::Add => x + y,
         BinaryOp::Sub => x - y,

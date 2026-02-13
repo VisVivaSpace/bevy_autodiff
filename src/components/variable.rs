@@ -18,7 +18,7 @@ pub struct IsConstant;
 
 /// Stores the numerical value of a variable.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct Value(pub f64);
+pub struct Value(pub(crate) f64);
 
 impl Value {
     /// Creates a new Value component.
@@ -31,6 +31,12 @@ impl Value {
     #[inline]
     pub const fn get(&self) -> f64 {
         self.0
+    }
+
+    /// Sets the stored value.
+    #[inline]
+    pub fn set(&mut self, v: f64) {
+        self.0 = v;
     }
 }
 

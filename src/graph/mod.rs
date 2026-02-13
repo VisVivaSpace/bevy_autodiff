@@ -7,8 +7,8 @@
 pub mod topology;
 pub mod traverse;
 
-pub use topology::{topological_order, topological_order_multi};
+pub use topology::{find_all_inputs, topological_order, topological_order_multi};
 pub use traverse::{
     collect_all_entities, get_binary_inputs, get_inputs, get_operation_name, get_unary_input,
-    get_value, is_leaf, max_depth, visit_topological, GraphTraverser,
+    get_value, is_leaf, max_depth, visit_topological,
 };

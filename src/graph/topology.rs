@@ -3,7 +3,7 @@
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput};
 
@@ -44,33 +44,11 @@ fn get_dependencies(world: &World, entity: Entity) -> Vec<Entity> {
 ///
 /// Like `topological_order` but accepts multiple root outputs. Useful when
 /// compiling a graph that includes both a function and its derivative outputs.
+///
+/// Uses a single DFS pass: dependencies are discovered and sorted simultaneously.
+/// Returns entities in dependency order (inputs first, outputs last).
 pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity> {
     let mut result = Vec::new();
-    let mut reachable = HashSet::new();
-    let mut queue = VecDeque::new();
-
-    // Start from all outputs and work backwards to find all dependencies
-    for &output in outputs {
-        queue.push_back(output);
-    }
-
-    while let Some(entity) = queue.pop_front() {
-        if reachable.contains(&entity) {
-            continue;
-        }
-        reachable.insert(entity);
-
-        let deps = get_dependencies(world, entity);
-        for dep in deps {
-            if !reachable.contains(&dep) {
-                queue.push_back(dep);
-            }
-        }
-    }
-
-    // Proper topological sort via DFS
-    let nodes: Vec<Entity> = reachable.into_iter().collect();
-    let node_set: HashSet<Entity> = nodes.iter().copied().collect();
     let mut visited = HashSet::new();
     let mut temp_mark = HashSet::new();
 
@@ -80,7 +58,6 @@ pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity>
         visited: &mut HashSet<Entity>,
         temp_mark: &mut HashSet<Entity>,
         result: &mut Vec<Entity>,
-        nodes: &HashSet<Entity>,
     ) {
         if visited.contains(&entity) {
             return;
@@ -92,9 +69,7 @@ pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity>
         temp_mark.insert(entity);
 
         for dep in get_dependencies(world, entity) {
-            if nodes.contains(&dep) {
-                visit(dep, world, visited, temp_mark, result, nodes);
-            }
+            visit(dep, world, visited, temp_mark, result);
         }
 
         temp_mark.remove(&entity);
@@ -102,28 +77,15 @@ pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity>
         result.push(entity);
     }
 
-    for entity in nodes {
-        visit(
-            entity,
-            world,
-            &mut visited,
-            &mut temp_mark,
-            &mut result,
-            &node_set,
-        );
+    for &output in outputs {
+        visit(output, world, &mut visited, &mut temp_mark, &mut result);
     }
 
     result
 }
 
-/// Checks if an entity is a leaf node (input or constant).
-pub fn is_leaf(world: &World, entity: Entity) -> bool {
-    let entity_ref = world.entity(entity);
-    entity_ref.contains::<IsInput>() || entity_ref.contains::<IsConstant>()
-}
-
-/// Gets all input variable entities in the graph (not constants).
-pub fn get_inputs(world: &World, output: Entity) -> Vec<Entity> {
+/// Gets all input variable entities reachable from an output (not constants).
+pub fn find_all_inputs(world: &World, output: Entity) -> Vec<Entity> {
     let order = topological_order(world, output);
     order
         .into_iter()
@@ -145,7 +107,7 @@ pub fn resolve_handle(world: &World, handle: EntityHandle) -> Option<Entity> {
 mod tests {
     use super::*;
     use crate::components::{Value, Variable};
-    use crate::context::{BinaryOpMarker, UnaryOpMarker};
+    use crate::components::{BinaryOpMarker, UnaryOpMarker};
     use crate::BinaryOp;
     use crate::UnaryOp;
 
@@ -277,6 +239,7 @@ mod tests {
 
     #[test]
     fn test_is_leaf() {
+        use crate::graph::traverse::is_leaf;
         let mut world = World::new();
         let x = create_input(&mut world, 1.0);
         let c = create_constant(&mut world, 2.0);
@@ -288,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_inputs() {
+    fn test_find_all_inputs() {
         let mut world = World::new();
         let x = create_input(&mut world, 1.0);
         let y = create_input(&mut world, 2.0);
@@ -296,7 +259,7 @@ mod tests {
         let sum1 = create_binary(&mut world, BinaryOp::Add, x, y);
         let sum2 = create_binary(&mut world, BinaryOp::Add, sum1, c);
 
-        let inputs = get_inputs(&world, sum2);
+        let inputs = find_all_inputs(&world, sum2);
 
         // Should contain x and y but not c
         assert_eq!(inputs.len(), 2);

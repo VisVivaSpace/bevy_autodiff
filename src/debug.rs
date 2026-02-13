@@ -8,8 +8,9 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 use std::fmt::Write;
 
-use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput, Value};
-use crate::context::{BinaryOpMarker, UnaryOpMarker};
+use crate::components::{
+    BinaryInputs, BinaryOpMarker, IsConstant, IsInput, UnaryInput, UnaryOpMarker, Value,
+};
 use crate::graph::topological_order;
 use crate::var::Var;
 
@@ -93,12 +94,12 @@ fn get_node_label(world: &World, entity: Entity) -> String {
 
     // Unary operation
     if let Some(op) = entity_ref.get::<UnaryOpMarker>() {
-        return op.0.name().to_string();
+        return op.op().name().to_string();
     }
 
     // Binary operation
     if let Some(op) = entity_ref.get::<BinaryOpMarker>() {
-        return op.0.name().to_string();
+        return op.op().name().to_string();
     }
 
     "???".to_string()

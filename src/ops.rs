@@ -85,32 +85,47 @@ pub fn with_context<F, R>(ad: &mut AutoDiff, f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    // Store the context
     let ptr = NonNull::new(ad as *mut AutoDiff).unwrap();
     CONTEXT.with(|ctx| {
         let old = ctx.borrow_mut().replace(ptr);
-
-        // Execute the closure
-        let result = f();
-
-        // Restore the old context (or clear it)
-        *ctx.borrow_mut() = old;
-
-        result
+        // RAII guard restores the previous context even if f() panics,
+        // preventing a dangling pointer from remaining in thread-local storage.
+        let _guard = ContextGuard { old };
+        f()
     })
 }
 
-/// Gets the current AutoDiff context.
+/// RAII guard that restores the previous context on drop (including panic unwind).
+struct ContextGuard {
+    old: Option<NonNull<AutoDiff>>,
+}
+
+impl Drop for ContextGuard {
+    fn drop(&mut self) {
+        CONTEXT.with(|ctx| {
+            *ctx.borrow_mut() = self.old.take();
+        });
+    }
+}
+
+/// Executes `f` with the current AutoDiff context, confining the `&mut` lifetime.
 ///
 /// # Panics
 ///
 /// Panics if called outside of a `with_context` block.
-fn get_context() -> &'static mut AutoDiff {
+fn with_current_context<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut AutoDiff) -> R,
+{
     CONTEXT.with(|ctx| {
-        ctx.borrow()
-            .as_ref()
-            .map(|ptr| unsafe { &mut *ptr.as_ptr() })
-            .expect("Operator overloading requires an active AutoDiff context. Use with_context().")
+        let ptr = ctx
+            .borrow()
+            .expect("Operator overloading requires an active AutoDiff context. Use with_context().");
+        // SAFETY: The pointer is valid for the duration of the with_context() call.
+        // We create a short-lived &mut that does not escape this closure.
+        // Only one with_current_context call executes at a time because operator
+        // trait methods run sequentially within a single expression.
+        f(unsafe { &mut *ptr.as_ptr() })
     })
 }
 
@@ -122,7 +137,7 @@ impl Add for Var {
     type Output = Var;
 
     fn add(self, rhs: Var) -> Var {
-        get_context().add(self, rhs)
+        with_current_context(|ctx| ctx.add(self, rhs))
     }
 }
 
@@ -130,9 +145,10 @@ impl Add<f64> for Var {
     type Output = Var;
 
     fn add(self, rhs: f64) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(rhs);
-        ctx.add(self, c)
+        with_current_context(|ctx| {
+            let c = ctx.constant(rhs);
+            ctx.add(self, c)
+        })
     }
 }
 
@@ -140,9 +156,10 @@ impl Add<Var> for f64 {
     type Output = Var;
 
     fn add(self, rhs: Var) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(self);
-        ctx.add(c, rhs)
+        with_current_context(|ctx| {
+            let c = ctx.constant(self);
+            ctx.add(c, rhs)
+        })
     }
 }
 
@@ -154,7 +171,7 @@ impl Sub for Var {
     type Output = Var;
 
     fn sub(self, rhs: Var) -> Var {
-        get_context().sub(self, rhs)
+        with_current_context(|ctx| ctx.sub(self, rhs))
     }
 }
 
@@ -162,9 +179,10 @@ impl Sub<f64> for Var {
     type Output = Var;
 
     fn sub(self, rhs: f64) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(rhs);
-        ctx.sub(self, c)
+        with_current_context(|ctx| {
+            let c = ctx.constant(rhs);
+            ctx.sub(self, c)
+        })
     }
 }
 
@@ -172,9 +190,10 @@ impl Sub<Var> for f64 {
     type Output = Var;
 
     fn sub(self, rhs: Var) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(self);
-        ctx.sub(c, rhs)
+        with_current_context(|ctx| {
+            let c = ctx.constant(self);
+            ctx.sub(c, rhs)
+        })
     }
 }
 
@@ -186,7 +205,7 @@ impl Mul for Var {
     type Output = Var;
 
     fn mul(self, rhs: Var) -> Var {
-        get_context().mul(self, rhs)
+        with_current_context(|ctx| ctx.mul(self, rhs))
     }
 }
 
@@ -194,9 +213,10 @@ impl Mul<f64> for Var {
     type Output = Var;
 
     fn mul(self, rhs: f64) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(rhs);
-        ctx.mul(self, c)
+        with_current_context(|ctx| {
+            let c = ctx.constant(rhs);
+            ctx.mul(self, c)
+        })
     }
 }
 
@@ -204,9 +224,10 @@ impl Mul<Var> for f64 {
     type Output = Var;
 
     fn mul(self, rhs: Var) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(self);
-        ctx.mul(c, rhs)
+        with_current_context(|ctx| {
+            let c = ctx.constant(self);
+            ctx.mul(c, rhs)
+        })
     }
 }
 
@@ -218,7 +239,7 @@ impl Div for Var {
     type Output = Var;
 
     fn div(self, rhs: Var) -> Var {
-        get_context().div(self, rhs)
+        with_current_context(|ctx| ctx.div(self, rhs))
     }
 }
 
@@ -226,9 +247,10 @@ impl Div<f64> for Var {
     type Output = Var;
 
     fn div(self, rhs: f64) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(rhs);
-        ctx.div(self, c)
+        with_current_context(|ctx| {
+            let c = ctx.constant(rhs);
+            ctx.div(self, c)
+        })
     }
 }
 
@@ -236,9 +258,10 @@ impl Div<Var> for f64 {
     type Output = Var;
 
     fn div(self, rhs: Var) -> Var {
-        let ctx = get_context();
-        let c = ctx.constant(self);
-        ctx.div(c, rhs)
+        with_current_context(|ctx| {
+            let c = ctx.constant(self);
+            ctx.div(c, rhs)
+        })
     }
 }
 
@@ -250,7 +273,7 @@ impl Neg for Var {
     type Output = Var;
 
     fn neg(self) -> Var {
-        get_context().neg(self)
+        with_current_context(|ctx| ctx.neg(self))
     }
 }
 

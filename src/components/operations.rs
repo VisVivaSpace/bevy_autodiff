@@ -103,6 +103,30 @@ impl BinaryOp {
     }
 }
 
+/// Component marker for unary operations (stores the operation type).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnaryOpMarker(pub(crate) UnaryOp);
+
+impl UnaryOpMarker {
+    /// Returns the operation type.
+    #[inline]
+    pub fn op(&self) -> UnaryOp {
+        self.0
+    }
+}
+
+/// Component marker for binary operations (stores the operation type).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BinaryOpMarker(pub(crate) BinaryOp);
+
+impl BinaryOpMarker {
+    /// Returns the operation type.
+    #[inline]
+    pub fn op(&self) -> BinaryOp {
+        self.0
+    }
+}
+
 /// Component storing the input entity for a unary operation.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnaryInput(pub EntityHandle);
@@ -207,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_operation_markers() {
-        use crate::context::{BinaryOpMarker, UnaryOpMarker};
+        use super::{BinaryOpMarker, UnaryOpMarker};
         let mut world = World::new();
 
         let unary = world.spawn(UnaryOpMarker(UnaryOp::Sin)).id();

@@ -72,8 +72,8 @@ pub use bevy_autodiff_macros::autodiff;
 
 // Re-export graph traversal helpers
 pub use graph::{
-    collect_all_entities, get_binary_inputs, get_inputs, get_operation_name, get_unary_input,
-    get_value, is_leaf, max_depth, visit_topological, GraphTraverser,
+    collect_all_entities, find_all_inputs, get_binary_inputs, get_inputs, get_operation_name,
+    get_unary_input, get_value, is_leaf, max_depth, visit_topological,
 };
 
 // Re-export optimization utilities
@@ -108,6 +108,10 @@ fn _assert_send_sync() {
     assert_sync::<UnaryOp>();
     assert_send::<BinaryOp>();
     assert_sync::<BinaryOp>();
+    assert_send::<components::UnaryOpMarker>();
+    assert_sync::<components::UnaryOpMarker>();
+    assert_send::<components::BinaryOpMarker>();
+    assert_sync::<components::BinaryOpMarker>();
     assert_send::<UnaryInput>();
     assert_sync::<UnaryInput>();
     assert_send::<BinaryInputs>();

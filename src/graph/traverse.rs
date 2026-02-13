@@ -8,7 +8,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 
 use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput, Value};
-use crate::context::{BinaryOpMarker, UnaryOpMarker};
+use crate::components::{BinaryOpMarker, UnaryOpMarker};
 
 /// Gets the input entity for a unary operation.
 pub fn get_unary_input(world: &World, entity: Entity) -> Option<Entity> {
@@ -52,10 +52,10 @@ pub fn get_value(world: &World, entity: Entity) -> Option<f64> {
 /// Gets the operation name for a node, if it's an operation.
 pub fn get_operation_name(world: &World, entity: Entity) -> Option<&'static str> {
     if let Some(op) = world.get::<UnaryOpMarker>(entity) {
-        return Some(op.0.name());
+        return Some(op.op().name());
     }
     if let Some(op) = world.get::<BinaryOpMarker>(entity) {
-        return Some(op.0.name());
+        return Some(op.op().name());
     }
     None
 }
@@ -91,11 +91,13 @@ fn compute_depths(world: &World, output: Entity) -> std::collections::HashMap<En
         let current_depth = depths[&entity];
 
         for input in get_inputs(world, entity) {
-            let entry = depths.entry(input).or_insert(current_depth + 1);
-            if *entry > current_depth + 1 {
-                *entry = current_depth + 1;
+            let new_depth = current_depth + 1;
+            let entry = depths.entry(input).or_insert(usize::MAX);
+            if new_depth < *entry {
+                *entry = new_depth;
+                // Only re-enqueue if we found a shorter path
+                queue.push_back(input);
             }
-            queue.push_back(input);
         }
     }
 
@@ -111,48 +113,6 @@ pub fn collect_all_entities(world: &World, output: Entity) -> Vec<Entity> {
 pub fn max_depth(world: &World, output: Entity) -> usize {
     let depths = compute_depths(world, output);
     depths.values().copied().max().unwrap_or(0)
-}
-
-/// Wrapper for ergonomic entity traversal with bound world reference.
-pub struct GraphTraverser<'w> {
-    world: &'w World,
-}
-
-impl<'w> GraphTraverser<'w> {
-    /// Creates a new traverser bound to a world.
-    pub fn new(world: &'w World) -> Self {
-        Self { world }
-    }
-
-    /// Gets the input for a unary operation.
-    pub fn unary_input(&self, entity: Entity) -> Option<Entity> {
-        get_unary_input(self.world, entity)
-    }
-
-    /// Gets inputs for a binary operation.
-    pub fn binary_inputs(&self, entity: Entity) -> Option<(Entity, Entity)> {
-        get_binary_inputs(self.world, entity)
-    }
-
-    /// Gets all direct inputs to a node.
-    pub fn inputs(&self, entity: Entity) -> Vec<Entity> {
-        get_inputs(self.world, entity)
-    }
-
-    /// Checks if an entity is a leaf.
-    pub fn is_leaf(&self, entity: Entity) -> bool {
-        is_leaf(self.world, entity)
-    }
-
-    /// Gets the value of an entity.
-    pub fn value(&self, entity: Entity) -> Option<f64> {
-        get_value(self.world, entity)
-    }
-
-    /// Gets the operation name.
-    pub fn operation_name(&self, entity: Entity) -> Option<&'static str> {
-        get_operation_name(self.world, entity)
-    }
 }
 
 #[cfg(test)]
@@ -227,14 +187,14 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_traverser() {
+    fn test_free_functions_on_graph() {
         let mut ad = AutoDiff::new();
         let x = ad.var(2.0);
         let y = ad.square(x);
 
-        let traverser = GraphTraverser::new(ad.world());
-        assert!(traverser.is_leaf(x.entity()));
-        assert!(!traverser.is_leaf(y.entity()));
-        assert_eq!(traverser.value(x.entity()), Some(2.0));
+        assert!(is_leaf(ad.world(), x.entity()));
+        assert!(!is_leaf(ad.world(), y.entity()));
+        assert_eq!(get_value(ad.world(), x.entity()), Some(2.0));
+        assert_eq!(get_value(ad.world(), y.entity()), Some(4.0));
     }
 }

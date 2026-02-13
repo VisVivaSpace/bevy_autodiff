@@ -9,5 +9,5 @@
 mod operations;
 mod variable;
 
-pub use operations::{BinaryInputs, BinaryOp, UnaryInput, UnaryOp};
+pub use operations::{BinaryInputs, BinaryOp, BinaryOpMarker, UnaryInput, UnaryOp, UnaryOpMarker};
 pub use variable::{Dependencies, IsConstant, IsInput, Value, Variable};
