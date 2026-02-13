@@ -777,6 +777,88 @@ impl AutoDiff {
     }
 
     // =========================================================================
+    // Compilation
+    // =========================================================================
+
+    /// Compiles the computation graph for fast repeated evaluation.
+    ///
+    /// Calls `differentiate()` to build derivative graphs for each requested
+    /// partial, then flattens everything into a single forward-pass array.
+    ///
+    /// `inputs` specifies which variables are treated as inputs (their values
+    /// change between evaluations). All other inputs are frozen at their
+    /// current values.
+    ///
+    /// `partials` is a list of multi-indices specifying which partial
+    /// derivatives to pre-compute. Each multi-index must have the same
+    /// length as `inputs`.
+    pub fn compile(
+        &mut self,
+        output: Var,
+        inputs: &[Var],
+        partials: &[Vec<usize>],
+    ) -> crate::compiled::CompiledGraph {
+        use crate::compiled::{flatten_graph, CompiledGraph};
+        use crate::graph::topology::topological_order_multi;
+
+        // 1. Build derivative Vars for each requested partial
+        let mut all_output_entities = vec![output.entity()];
+        let mut partial_vars: Vec<(Vec<usize>, Var)> = Vec::new();
+
+        for multi_index in partials {
+            assert_eq!(
+                multi_index.len(),
+                inputs.len(),
+                "multi_index length must match number of inputs"
+            );
+            let mut current = output;
+            for (i, &count) in multi_index.iter().enumerate() {
+                for _ in 0..count {
+                    current = self.differentiate(current, inputs[i]);
+                }
+            }
+            partial_vars.push((multi_index.clone(), current));
+            all_output_entities.push(current.entity());
+        }
+
+        // 2. Topological sort all entities reachable from any output
+        let order = topological_order_multi(&self.world, &all_output_entities);
+
+        // 3. Build input entity -> position mapping
+        let input_to_pos: HashMap<bevy_ecs::entity::Entity, usize> = inputs
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.entity(), i))
+            .collect();
+
+        // 4. Flatten to Vec<NodeOp>
+        let (nodes, entity_to_index) = flatten_graph(&self.world, &order, &input_to_pos);
+
+        // 5. Store output indices
+        let output_index = entity_to_index[&output.entity()];
+        let partial_outputs: Vec<(Vec<usize>, usize)> = partial_vars
+            .iter()
+            .map(|(mi, var)| (mi.clone(), entity_to_index[&var.entity()]))
+            .collect();
+
+        CompiledGraph::new(nodes, inputs.len(), output_index, partial_outputs)
+    }
+
+    /// Compiles the computation graph with all partials up to `max_order`.
+    ///
+    /// Convenience wrapper around `compile()` that generates all
+    /// multi-indices of total order 1 through `max_order`.
+    pub fn compile_order(
+        &mut self,
+        output: Var,
+        inputs: &[Var],
+        max_order: usize,
+    ) -> crate::compiled::CompiledGraph {
+        let partials = crate::compiled::generate_multi_indices(inputs.len(), max_order);
+        self.compile(output, inputs, &partials)
+    }
+
+    // =========================================================================
     // Smart Helpers (constant folding during differentiation)
     // =========================================================================
 
@@ -1631,5 +1713,119 @@ mod tests {
         let dc = ad.differentiate(c, x);
         assert!(ad.is_constant(dc));
         assert_eq!(ad.eval(dc), 0.0);
+    }
+
+    // =========================================================================
+    // CompiledGraph tests
+    // =========================================================================
+
+    #[test]
+    fn test_compile_value_only() {
+        // f = x * y, no partials
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+
+        let mut cg = ad.compile(f, &[x, y], &[]);
+        cg.eval(&[2.0, 3.0]);
+        assert_eq!(cg.value(), 6.0);
+        cg.eval(&[4.0, 5.0]);
+        assert_eq!(cg.value(), 20.0);
+    }
+
+    #[test]
+    fn test_compile_with_derivatives() {
+        // f = x², df/dx = 2x, d²f/dx² = 2
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0);
+        let f = ad.square(x);
+
+        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]);
+        cg.eval(&[3.0]);
+        assert_eq!(cg.value(), 9.0);
+        assert_eq!(cg.partial(&[1]), 6.0);
+        assert_eq!(cg.partial(&[2]), 2.0);
+
+        // Different input
+        cg.eval(&[5.0]);
+        assert_eq!(cg.value(), 25.0);
+        assert_relative_eq!(cg.partial(&[1]), 10.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[2]), 2.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_compile_order_two_vars() {
+        // f = x * y, compile all partials up to order 2
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+
+        let mut cg = ad.compile_order(f, &[x, y], 2);
+        cg.eval(&[2.0, 3.0]);
+
+        assert_eq!(cg.value(), 6.0);
+        assert_relative_eq!(cg.partial(&[1, 0]), 3.0, epsilon = 1e-10); // df/dx = y
+        assert_relative_eq!(cg.partial(&[0, 1]), 2.0, epsilon = 1e-10); // df/dy = x
+        assert_relative_eq!(cg.partial(&[1, 1]), 1.0, epsilon = 1e-10); // d²f/dxdy = 1
+        assert_relative_eq!(cg.partial(&[2, 0]), 0.0, epsilon = 1e-10); // d²f/dx² = 0
+        assert_relative_eq!(cg.partial(&[0, 2]), 0.0, epsilon = 1e-10); // d²f/dy² = 0
+    }
+
+    #[test]
+    fn test_compile_sin_exp() {
+        // f = sin(exp(x))
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let exp_x = ad.exp(x);
+        let f = ad.sin(exp_x);
+
+        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]);
+
+        // Eval at x=0
+        cg.eval(&[0.0]);
+        assert_relative_eq!(cg.value(), 1.0_f64.sin(), epsilon = 1e-10);
+        // f'(x) = cos(exp(x)) * exp(x)
+        let expected_d1 = 1.0_f64.cos() * 1.0_f64;
+        assert_relative_eq!(cg.partial(&[1]), expected_d1, epsilon = 1e-10);
+
+        // Eval at different point
+        cg.eval(&[0.5]);
+        let e05 = 0.5_f64.exp();
+        assert_relative_eq!(cg.value(), e05.sin(), epsilon = 1e-10);
+        let expected_d1 = e05.cos() * e05;
+        assert_relative_eq!(cg.partial(&[1]), expected_d1, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_compile_matches_ecs() {
+        // Verify compiled output matches ECS evaluation for Rosenbrock
+        let mut ad = AutoDiff::new();
+        let x = ad.var(0.5);
+        let y = ad.var(0.8);
+        let one = ad.constant(1.0);
+        let hundred = ad.constant(100.0);
+
+        let one_minus_x = ad.sub(one, x);
+        let term1 = ad.square(one_minus_x);
+        let x_sq = ad.square(x);
+        let y_minus_x_sq = ad.sub(y, x_sq);
+        let term2_inner = ad.square(y_minus_x_sq);
+        let term2 = ad.mul(hundred, term2_inner);
+        let f = ad.add(term1, term2);
+
+        // ECS derivatives
+        let ecs_val = ad.eval(f);
+        let ecs_dfdx = ad.derivative(f, x, 1);
+        let ecs_dfdy = ad.derivative(f, y, 1);
+
+        // Compiled derivatives
+        let mut cg = ad.compile_order(f, &[x, y], 1);
+        cg.eval(&[0.5, 0.8]);
+
+        assert_relative_eq!(cg.value(), ecs_val, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]), ecs_dfdx, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]), ecs_dfdy, epsilon = 1e-10);
     }
 }

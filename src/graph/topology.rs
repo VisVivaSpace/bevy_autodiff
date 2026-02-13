@@ -11,79 +11,8 @@ use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput};
 ///
 /// Returns entities in dependency order: inputs first, then operations that
 /// depend only on already-visited entities, and so on. The output entity is last.
-///
-/// This is used to propagate Taylor coefficients from inputs to outputs.
 pub fn topological_order(world: &World, output: Entity) -> Vec<Entity> {
-    let mut result = Vec::new();
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::new();
-
-    // Start from output and work backwards to find all dependencies
-    queue.push_back(output);
-
-    while let Some(entity) = queue.pop_front() {
-        if visited.contains(&entity) {
-            continue;
-        }
-        visited.insert(entity);
-
-        // Get dependencies
-        let deps = get_dependencies(world, entity);
-        for dep in deps {
-            if !visited.contains(&dep) {
-                queue.push_back(dep);
-            }
-        }
-    }
-
-    // Now do a proper topological sort of visited nodes
-    // Reset visited for the actual topological sort
-    let nodes: Vec<Entity> = visited.into_iter().collect();
-    let mut visited = HashSet::new();
-    let mut temp_mark = HashSet::new();
-
-    fn visit(
-        entity: Entity,
-        world: &World,
-        visited: &mut HashSet<Entity>,
-        temp_mark: &mut HashSet<Entity>,
-        result: &mut Vec<Entity>,
-        nodes: &HashSet<Entity>,
-    ) {
-        if visited.contains(&entity) {
-            return;
-        }
-        if temp_mark.contains(&entity) {
-            panic!("Cycle detected in computation graph");
-        }
-
-        temp_mark.insert(entity);
-
-        // Visit dependencies first
-        for dep in get_dependencies(world, entity) {
-            if nodes.contains(&dep) {
-                visit(dep, world, visited, temp_mark, result, nodes);
-            }
-        }
-
-        temp_mark.remove(&entity);
-        visited.insert(entity);
-        result.push(entity);
-    }
-
-    let node_set: HashSet<Entity> = nodes.iter().copied().collect();
-    for entity in nodes {
-        visit(
-            entity,
-            world,
-            &mut visited,
-            &mut temp_mark,
-            &mut result,
-            &node_set,
-        );
-    }
-
-    result
+    topological_order_multi(world, &[output])
 }
 
 /// Gets the direct dependencies (input entities) of an entity.
@@ -109,6 +38,82 @@ fn get_dependencies(world: &World, entity: Entity) -> Vec<Entity> {
     }
 
     deps
+}
+
+/// Computes a topological ordering of all entities that affect any of the given outputs.
+///
+/// Like `topological_order` but accepts multiple root outputs. Useful when
+/// compiling a graph that includes both a function and its derivative outputs.
+pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity> {
+    let mut result = Vec::new();
+    let mut reachable = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    // Start from all outputs and work backwards to find all dependencies
+    for &output in outputs {
+        queue.push_back(output);
+    }
+
+    while let Some(entity) = queue.pop_front() {
+        if reachable.contains(&entity) {
+            continue;
+        }
+        reachable.insert(entity);
+
+        let deps = get_dependencies(world, entity);
+        for dep in deps {
+            if !reachable.contains(&dep) {
+                queue.push_back(dep);
+            }
+        }
+    }
+
+    // Proper topological sort via DFS
+    let nodes: Vec<Entity> = reachable.into_iter().collect();
+    let node_set: HashSet<Entity> = nodes.iter().copied().collect();
+    let mut visited = HashSet::new();
+    let mut temp_mark = HashSet::new();
+
+    fn visit(
+        entity: Entity,
+        world: &World,
+        visited: &mut HashSet<Entity>,
+        temp_mark: &mut HashSet<Entity>,
+        result: &mut Vec<Entity>,
+        nodes: &HashSet<Entity>,
+    ) {
+        if visited.contains(&entity) {
+            return;
+        }
+        if temp_mark.contains(&entity) {
+            panic!("Cycle detected in computation graph");
+        }
+
+        temp_mark.insert(entity);
+
+        for dep in get_dependencies(world, entity) {
+            if nodes.contains(&dep) {
+                visit(dep, world, visited, temp_mark, result, nodes);
+            }
+        }
+
+        temp_mark.remove(&entity);
+        visited.insert(entity);
+        result.push(entity);
+    }
+
+    for entity in nodes {
+        visit(
+            entity,
+            world,
+            &mut visited,
+            &mut temp_mark,
+            &mut result,
+            &node_set,
+        );
+    }
+
+    result
 }
 
 /// Checks if an entity is a leaf node (input or constant).

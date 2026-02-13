@@ -53,7 +53,7 @@ pub mod ops;
 mod tests;
 
 // Re-exports for convenience
-pub use compiled::NodeOp;
+pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
 pub use error::{AutoDiffError, AutoDiffResult};
 pub use var::Var;
