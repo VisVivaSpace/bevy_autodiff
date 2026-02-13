@@ -4,16 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`bevy_autodiff` is a Rust crate implementing lazy, higher-order automatic differentiation using Bevy ECS as the computational graph backend. Full design specification is in `notes/bevy_autodiff_plan.md`.
+`bevy_autodiff` is a Rust crate implementing automatic differentiation using Bevy ECS as the computational graph backend. It serves as a baseline AD library exploring what ECS can do for automatic differentiation.
 
-**Core innovations:**
-- ECS as computation graph: entities are variables, components store Taylor coefficients
-- Taylor-mode AD: O(n²) complexity for n-th derivative (vs O(exp(n)) for naive nesting)
-- Univariate decomposition: avoids multivariate Bell polynomial complexity
-- Incremental order growth: compute higher derivatives on demand
+**Core approach:**
+- ECS as computation graph: entities are variables, components define operations
+- Symbolic graph differentiation: `differentiate(output, wrt)` creates NEW entities representing the derivative graph using the chain rule
+- Successive differentiation: for d²f/dxdy, call `differentiate(differentiate(f, x), y)`
+- Constant folding during differentiation prevents graph bloat
 - Functional/immutable style aligned with DOP principles
 
-**Related crate:** `bevy_entity_ptr` at `/Users/nstrange/git/vis_viva/clawd/bevy_entity_ptr` — provides ergonomic entity traversal used by this crate.
+**Related crate:** `bevy_entity_ptr` — provides ergonomic entity traversal used by this crate.
 
 ## Build Commands
 
@@ -24,11 +24,10 @@ cargo test <test_name>         # Run a single test
 cargo test -- --nocapture      # Run tests with stdout visible
 cargo clippy                   # Run linter
 cargo fmt                      # Format code
+cargo bench                    # Run benchmarks
 ```
 
 ## Testing
-
-The test suite validates correctness through multiple complementary approaches:
 
 ### Unit Tests (default)
 
@@ -36,12 +35,13 @@ The test suite validates correctness through multiple complementary approaches:
 cargo test
 ```
 
-Runs ~390 tests covering:
-- Taylor coefficient arithmetic (polynomial operations)
+Runs ~230 tests covering:
+- Graph construction and evaluation
 - Individual function derivatives (sin, cos, exp, ln, sqrt, etc.)
 - Mathematical identities (Pythagorean, exp/ln inverse, etc.)
-- Forward and reverse mode agreement
-- Higher-order derivatives
+- Derivative properties (linearity, product rule, mixed partial symmetry)
+- Higher-order derivatives via successive differentiation
+- CompiledGraph correctness
 
 ### Proc-Macro Tests
 
@@ -57,7 +57,7 @@ Tests the `#[autodiff]` attribute macro and `expr!` declarative macro for ergono
 cargo test --test autodiff_crate_comparison
 ```
 
-Compares bevy_autodiff's first-order derivatives against the [autodiff](https://crates.io/crates/autodiff) crate (elrnv/autodiff), an independent forward-mode AD implementation. This runs without special toolchain requirements and covers all supported functions.
+Compares bevy_autodiff's first-order derivatives against the [autodiff](https://crates.io/crates/autodiff) crate (elrnv/autodiff), an independent forward-mode AD implementation. Covers all supported elementary functions, compositions, and arithmetic combinations.
 
 ### Oracle Validation: std::autodiff (Enzyme)
 
@@ -65,23 +65,13 @@ Compares bevy_autodiff's first-order derivatives against the [autodiff](https://
 RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test --features std_autodiff_tests
 ```
 
-Compares against Rust's experimental `std::autodiff` powered by LLVM/Enzyme. Requires building the Enzyme toolchain from source:
-
-```bash
-git clone git@github.com:rust-lang/rust
-cd rust
-./configure --enable-llvm-link-shared --enable-llvm-plugins --enable-llvm-enzyme \
-  --release-channel=nightly --enable-llvm-assertions --enable-clang --enable-lld \
-  --enable-option-checking --enable-ninja --disable-docs
-./x build --stage 1 library
-rustup toolchain link enzyme build/host/stage1
-```
+Compares against Rust's experimental `std::autodiff` powered by LLVM/Enzyme. Requires the Enzyme toolchain.
 
 ### Test Strategy
 
 | Test Type | What It Validates | Requirements |
 |-----------|-------------------|--------------|
-| Unit tests | Internal correctness, mathematical identities | None |
+| Unit tests | Internal correctness, mathematical identities, derivative properties | None |
 | autodiff crate | First derivatives against independent AD | None |
 | std::autodiff | First derivatives against LLVM/Enzyme | Enzyme toolchain |
 | Proc-macro | Macro expansion and ergonomic API | `proc-macros` feature |
@@ -93,56 +83,45 @@ rustup toolchain link enzyme build/host/stage1
 Variables are entities with components:
 - `Variable`, `IsInput`, `IsConstant` — markers
 - `Value(f64)` — current numerical value
-- `TaylorData` — cached Taylor coefficients per direction
 - `UnaryOp`/`BinaryOp` + `UnaryInput`/`BinaryInputs` — operation definitions
 - `Dependencies` — bitmask tracking which inputs affect this variable
 
-### Taylor-Mode Strategy
+### Symbolic Differentiation
 
-Instead of symbolic differentiation, propagate truncated Taylor polynomials:
-1. Parameterize along direction: `p(t) = x + t·d`
-2. Compute Taylor series of `f(p(t))`
-3. Extract derivatives: `f^(n)(a) = n! · coefficient[n]`
+`differentiate(output, wrt) -> Var` creates NEW ECS entities representing the derivative graph:
 
-Mixed partials recovered via polarization identity from directional derivatives.
+1. Topological sort from output back to inputs
+2. For each node, apply the chain rule to create derivative entities
+3. Base cases: `d(wrt)/d(wrt) = 1`, `d(other_input)/d(wrt) = 0`, `d(constant)/d(wrt) = 0`
+4. Constant folding via smart helpers (`smart_add`, `smart_mul`, etc.) collapses zero/one terms
 
-### Planned Module Structure
+For higher-order: `differentiate(differentiate(f, x), y)` gives d²f/dxdy.
+
+### CompiledGraph
+
+At compile time, `differentiate()` builds derivative graphs for all requested partials. The entire graph (original + derivatives) is flattened into a `Vec<NodeOp>`. At eval time, a single forward pass computes all values.
+
+### Module Structure
 
 ```
 src/
 ├── lib.rs              # Re-exports, crate docs
-├── context.rs          # AutoDiff struct, main API
+├── context.rs          # AutoDiff struct, differentiate(), compile(), main API
 ├── var.rs              # Var handle type
+├── compiled.rs         # CompiledGraph, NodeOp, flatten_graph
 ├── components/         # ECS components
-│   ├── variable.rs     # Variable markers
-│   ├── operations.rs   # UnaryOp, BinaryOp
-│   ├── taylor.rs       # TaylorData, Direction, MultiIndex
-│   └── adjoint.rs      # AdjointTaylor for reverse mode
-├── taylor/             # Forward propagation
-│   ├── polynomial.rs   # Truncated polynomial arithmetic
-│   ├── propagate.rs    # Graph traversal
-│   └── rules/          # Per-operation coefficient rules
-├── reverse/            # Reverse accumulation
-│   ├── adjoint_rules.rs
-│   └── gradient.rs
-├── partials/           # Partial derivative extraction
-│   ├── directional.rs
-│   └── interpolate.rs
-└── graph/              # Graph utilities
-    ├── topology.rs     # Topological sort
-    └── cache.rs        # Invalidation on input change
+│   ├── variable.rs     # Variable markers (IsInput, IsConstant, Value, Dependencies)
+│   └── operations.rs   # UnaryOp, BinaryOp, UnaryInput, BinaryInputs
+├── graph/              # Graph utilities
+│   ├── topology.rs     # topological_order, topological_order_multi
+│   └── traverse.rs     # Graph traversal utilities
+├── debug.rs            # Graph visualization (DOT format)
+├── error.rs            # Error types
+├── macros.rs           # expr! macro
+├── optimize.rs         # CSE detection, simplification
+├── ops.rs              # Operator overloading (Add, Mul, etc.)
+└── util.rs             # Math utilities (factorial, binomial)
 ```
-
-### Key Taylor Coefficient Rules
-
-All rules are O(n²) for order n:
-- **Multiplication**: Cauchy product (convolution)
-- **Division**: Recurrence solving y·v = u
-- **Sin/Cos**: Coupled recurrence (compute together)
-- **Exp**: y_k = (1/k) Σ j·u_j·y_{k-j}
-- **Ln**: Inverse of exp recurrence
-
-Reference: Griewank & Walther (2008), Tables 13.1-13.2
 
 ## Workflow Instructions
 
@@ -160,16 +139,16 @@ Reference: Griewank & Walther (2008), Tables 13.1-13.2
 ```toml
 [dependencies]
 bevy_ecs = "0.15"
-bevy_entity_ptr = { path = "../bevy_entity_ptr" }  # Sibling crate
-smallvec = "1.11"
+bevy_entity_ptr = "0.1.0"
 thiserror = "1.0"
-bevy_autodiff-macros = { path = "./bevy_autodiff-macros", optional = true }  # Proc-macro crate
+bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
 
 [dev-dependencies]
-approx = "0.5"   # Floating point comparisons
-autodiff = "0.7" # Oracle validation for derivatives
+approx = "0.5"    # Floating point comparisons
+autodiff = "0.7"  # Oracle validation for derivatives
+criterion = "0.5" # Benchmarks
 
 [features]
-proc-macros = ["bevy_autodiff-macros"]      # Enable #[autodiff] and expr! macros
-std_autodiff_tests = []            # Enable std::autodiff comparison tests (requires Enzyme)
+proc-macros = ["bevy_autodiff-macros"]   # Enable #[autodiff] and expr! macros
+std_autodiff_tests = []                  # Enable std::autodiff comparison tests (requires Enzyme)
 ```
