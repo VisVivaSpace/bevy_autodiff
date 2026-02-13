@@ -692,6 +692,91 @@ impl AutoDiff {
     }
 
     // =========================================================================
+    // Derivative API (built on differentiate)
+    // =========================================================================
+
+    /// Computes the n-th derivative of `output` with respect to `input`.
+    ///
+    /// Applies `differentiate()` `order` times, then evaluates.
+    ///
+    /// ```
+    /// # use bevy_autodiff::AutoDiff;
+    /// let mut ad = AutoDiff::new();
+    /// let x = ad.var(2.0);
+    /// let f = ad.powi(x, 3); // x³
+    ///
+    /// assert_eq!(ad.derivative(f, x, 1), 12.0); // 3x² = 12
+    /// assert_eq!(ad.derivative(f, x, 2), 12.0); // 6x = 12
+    /// assert_eq!(ad.derivative(f, x, 3), 6.0);  // 6
+    /// ```
+    pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> f64 {
+        let mut current = output;
+        for _ in 0..order {
+            current = self.differentiate(current, input);
+        }
+        self.eval(current)
+    }
+
+    /// Computes a mixed partial derivative specified by a multi-index.
+    ///
+    /// `multi_index[i]` is the number of times to differentiate with respect
+    /// to `inputs[i]`. For example, `multi_index = [2, 1]` computes
+    /// d³f / (dx² dy).
+    ///
+    /// ```
+    /// # use bevy_autodiff::AutoDiff;
+    /// let mut ad = AutoDiff::new();
+    /// let x = ad.var(1.0);
+    /// let y = ad.var(2.0);
+    /// let x2 = ad.square(x);
+    /// let f = ad.mul(x2, y); // x² * y
+    ///
+    /// // d²f/dxdy = 2x = 2
+    /// assert_eq!(ad.partial(f, &[1, 1], &[x, y]), 2.0);
+    /// ```
+    pub fn partial(&mut self, output: Var, multi_index: &[usize], inputs: &[Var]) -> f64 {
+        assert_eq!(
+            multi_index.len(),
+            inputs.len(),
+            "multi_index and inputs must have the same length"
+        );
+        let mut current = output;
+        for (i, &count) in multi_index.iter().enumerate() {
+            for _ in 0..count {
+                current = self.differentiate(current, inputs[i]);
+            }
+        }
+        self.eval(current)
+    }
+
+    /// Computes the gradient of `output` with respect to all input variables.
+    ///
+    /// Returns a vector of partial derivatives in input creation order.
+    ///
+    /// ```
+    /// # use bevy_autodiff::AutoDiff;
+    /// let mut ad = AutoDiff::new();
+    /// let x = ad.var(1.0);
+    /// let y = ad.var(2.0);
+    /// let x2 = ad.square(x);
+    /// let y2 = ad.square(y);
+    /// let f = ad.add(x2, y2); // x² + y²
+    ///
+    /// let grad = ad.gradient(f);
+    /// assert_eq!(grad, vec![2.0, 4.0]); // [2x, 2y]
+    /// ```
+    pub fn gradient(&mut self, output: Var) -> Vec<f64> {
+        let inputs: Vec<Var> = self.inputs.clone();
+        inputs
+            .iter()
+            .map(|&input| {
+                let dvar = self.differentiate(output, input);
+                self.eval(dvar)
+            })
+            .collect()
+    }
+
+    // =========================================================================
     // Smart Helpers (constant folding during differentiation)
     // =========================================================================
 

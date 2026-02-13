@@ -21,11 +21,17 @@
 //! let x = ad.var(2.0);
 //! let y = ad.var(3.0);
 //!
-//! // Build computation graph
-//! let f = ad.mul(x, y);  // f = x * y
-//!
-//! // Evaluate
+//! // Build computation graph: f = x * y
+//! let f = ad.mul(x, y);
 //! assert_eq!(ad.eval(f), 6.0);
+//!
+//! // Symbolic differentiation creates new graph entities
+//! let dfdx = ad.differentiate(f, x);
+//! assert_eq!(ad.eval(dfdx), 3.0); // df/dx = y = 3
+//!
+//! // Higher-order: d²f/dxdy = 1
+//! let d2fdxdy = ad.differentiate(dfdx, y);
+//! assert_eq!(ad.eval(d2fdxdy), 1.0);
 //! ```
 
 pub mod compiled;
