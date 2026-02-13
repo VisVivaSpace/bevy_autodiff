@@ -12,9 +12,7 @@ use crate::context::{BinaryOpMarker, UnaryOpMarker};
 
 /// Gets the input entity for a unary operation.
 pub fn get_unary_input(world: &World, entity: Entity) -> Option<Entity> {
-    world
-        .get::<UnaryInput>(entity)
-        .map(|ui| ui.get().entity())
+    world.get::<UnaryInput>(entity).map(|ui| ui.get().entity())
 }
 
 /// Gets the input entities for a binary operation as (left, right).

@@ -342,8 +342,8 @@ mod tests {
         let x = ad.var(2.0);
 
         let outer = with_context(&mut ad, || {
-            let inner = x + 1.0;  // 3.0
-            inner * 2.0  // 6.0
+            let inner = x + 1.0; // 3.0
+            inner * 2.0 // 6.0
         });
 
         assert_eq!(ad.eval(outer), 6.0);

@@ -60,8 +60,7 @@ pub use var::Var;
 
 // Re-export key component types
 pub use components::{
-    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value,
-    Variable,
+    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value, Variable,
 };
 
 // Re-export debug utilities

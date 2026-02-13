@@ -1,7 +1,6 @@
 //! Gradient computation example
 //!
-//! Demonstrates building a multivariate computation graph.
-//! Gradient computation will be re-enabled after differentiate() is implemented.
+//! Demonstrates computing the gradient of a multivariate function.
 //!
 //! Run with: cargo run --example gradient
 
@@ -25,5 +24,13 @@ fn main() {
     let value = ad.eval(f);
     println!("f(1, 2) = {}", value);
 
-    // Gradient computation will be re-enabled after differentiate() is implemented
+    // Gradient: [df/dx, df/dy] = [2x + y, x + 2y] = [4, 5]
+    let grad = ad.gradient(f);
+    println!("gradient = {:?} (expected [4.0, 5.0])", grad);
+
+    // Individual partial derivatives
+    let dfdx = ad.differentiate(f, x);
+    let dfdy = ad.differentiate(f, y);
+    println!("df/dx = {}", ad.eval(dfdx));
+    println!("df/dy = {}", ad.eval(dfdy));
 }

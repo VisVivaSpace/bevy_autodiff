@@ -1,7 +1,6 @@
 //! Orbital mechanics example
 //!
-//! Demonstrates computing gravitational potential.
-//! Gradient/Hessian computation will be re-enabled after differentiate() is implemented.
+//! Demonstrates computing gravitational potential and its gradient.
 //!
 //! Run with: cargo run --example orbital_mechanics
 
@@ -39,5 +38,14 @@ fn main() {
     println!("Potential V = {} km^2/s^2", v_val);
     println!("Expected:   V = {} km^2/s^2", -mu / r_val);
 
-    // Gradient/Hessian computation will be re-enabled after differentiate() is implemented
+    // Gradient of potential: acceleration = -grad(V)
+    let grad = ad.gradient(v);
+    println!("\nGradient of V:");
+    println!("  dV/dx = {} (acceleration x-component)", grad[0]);
+    println!("  dV/dy = {}", grad[1]);
+    println!("  dV/dz = {}", grad[2]);
+
+    // Expected: dV/dx = mu * x / r^3
+    let expected_dvdx = mu * x_val / r_val.powi(3);
+    println!("\nExpected dV/dx = {}", expected_dvdx);
 }

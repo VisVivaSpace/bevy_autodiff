@@ -21,11 +21,8 @@ pub fn to_dot(world: &World, output: Var) -> String {
 
     // Get all entities in topological order
     let entities = topological_order(world, output.entity());
-    let entity_to_id: std::collections::HashMap<Entity, usize> = entities
-        .iter()
-        .enumerate()
-        .map(|(i, &e)| (e, i))
-        .collect();
+    let entity_to_id: std::collections::HashMap<Entity, usize> =
+        entities.iter().enumerate().map(|(i, &e)| (e, i)).collect();
 
     // Generate node definitions
     for (i, &entity) in entities.iter().enumerate() {
@@ -57,10 +54,20 @@ pub fn to_dot(world: &World, output: Var) -> String {
             let right_entity = binary_inputs.right.entity();
 
             if let Some(&left_id) = entity_to_id.get(&left_entity) {
-                writeln!(dot, "    node_{} -> node_{} [label=\"L\"];", left_id, node_id).unwrap();
+                writeln!(
+                    dot,
+                    "    node_{} -> node_{} [label=\"L\"];",
+                    left_id, node_id
+                )
+                .unwrap();
             }
             if let Some(&right_id) = entity_to_id.get(&right_entity) {
-                writeln!(dot, "    node_{} -> node_{} [label=\"R\"];", right_id, node_id).unwrap();
+                writeln!(
+                    dot,
+                    "    node_{} -> node_{} [label=\"R\"];",
+                    right_id, node_id
+                )
+                .unwrap();
             }
         }
     }

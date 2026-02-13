@@ -359,6 +359,162 @@ fn test_power_power_law() {
 }
 
 // ============================================================================
+// Derivative Properties
+// ============================================================================
+
+#[test]
+fn test_derivative_of_sum_is_sum_of_derivatives() {
+    // d(f+g)/dx = df/dx + dg/dx
+    for &x_val in &POSITIVE_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(x_val);
+
+        let f = ad.sin(x);
+        let g = ad.exp(x);
+        let fg_sum = ad.add(f, g);
+
+        // d(f+g)/dx
+        let d_sum = ad.differentiate(fg_sum, x);
+
+        // df/dx + dg/dx
+        let df = ad.differentiate(f, x);
+        let dg = ad.differentiate(g, x);
+        let sum_d = ad.add(df, dg);
+
+        assert_relative_eq!(ad.eval(d_sum), ad.eval(sum_d), epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_derivative_of_product_is_product_rule() {
+    // d(fg)/dx = f'g + fg'
+    for &x_val in &POSITIVE_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(x_val);
+
+        let f = ad.sin(x);
+        let g = ad.exp(x);
+        let fg = ad.mul(f, g);
+
+        let d_fg = ad.differentiate(fg, x);
+
+        let df = ad.differentiate(f, x);
+        let dg = ad.differentiate(g, x);
+        let df_g = ad.mul(df, g);
+        let f_dg = ad.mul(f, dg);
+        let product_rule = ad.add(df_g, f_dg);
+
+        assert_relative_eq!(ad.eval(d_fg), ad.eval(product_rule), epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_derivative_of_constant_is_zero() {
+    for &c_val in &TEST_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0);
+        let c = ad.constant(c_val);
+        let dc = ad.differentiate(c, x);
+        assert_relative_eq!(ad.eval(dc), 0.0, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_derivative_linearity() {
+    // d(a*f + b*g)/dx = a*df/dx + b*dg/dx
+    for &x_val in &POSITIVE_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(x_val);
+        let a = ad.constant(3.0);
+        let b = ad.constant(-2.0);
+
+        let f = ad.sin(x);
+        let g = ad.ln(x);
+
+        let af = ad.mul(a, f);
+        let bg = ad.mul(b, g);
+        let combo = ad.add(af, bg);
+        let d_combo = ad.differentiate(combo, x);
+
+        let df = ad.differentiate(f, x);
+        let dg = ad.differentiate(g, x);
+        let a_df = ad.mul(a, df);
+        let b_dg = ad.mul(b, dg);
+        let expected = ad.add(a_df, b_dg);
+
+        assert_relative_eq!(ad.eval(d_combo), ad.eval(expected), epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_pythagorean_identity_derivative() {
+    // d/dx(sin²(x) + cos²(x)) = 0
+    for &x_val in &TEST_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(x_val);
+
+        let sin_x = ad.sin(x);
+        let cos_x = ad.cos(x);
+        let sin2 = ad.square(sin_x);
+        let cos2 = ad.square(cos_x);
+        let f = ad.add(sin2, cos2);
+
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 0.0, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_mixed_partial_symmetry() {
+    // d²f/dxdy = d²f/dydx for f = sin(x*y)
+    for &x_val in &[0.5, 1.0, 2.0] {
+        for &y_val in &[0.5, 1.0, 1.5] {
+            let mut ad = AutoDiff::new();
+            let x = ad.var(x_val);
+            let y = ad.var(y_val);
+
+            let xy = ad.mul(x, y);
+            let f = ad.sin(xy);
+
+            let dfdx = ad.differentiate(f, x);
+            let d2fdxdy = ad.differentiate(dfdx, y);
+
+            let dfdy = ad.differentiate(f, y);
+            let d2fdydx = ad.differentiate(dfdy, x);
+
+            assert_relative_eq!(ad.eval(d2fdxdy), ad.eval(d2fdydx), epsilon = 1e-10);
+        }
+    }
+}
+
+#[test]
+fn test_chain_rule_exp_ln_inverse() {
+    // d/dx(exp(ln(x))) should equal d/dx(x) = 1 for x > 0
+    for &x_val in &POSITIVE_VALUES {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(x_val);
+        let ln_x = ad.ln(x);
+        let f = ad.exp(ln_x);
+        let df = ad.differentiate(f, x);
+        assert_relative_eq!(ad.eval(df), 1.0, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn test_higher_order_derivative_polynomial() {
+    // f = x^5, f'=5x^4, f''=20x^3, f'''=60x^2, f''''=120x, f'''''=120
+    let mut ad = AutoDiff::new();
+    let x = ad.var(2.0);
+    let f = ad.powi(x, 5);
+
+    assert_relative_eq!(ad.derivative(f, x, 1), 80.0, epsilon = 1e-8); // 5*16
+    assert_relative_eq!(ad.derivative(f, x, 2), 160.0, epsilon = 1e-7); // 20*8
+    assert_relative_eq!(ad.derivative(f, x, 3), 240.0, epsilon = 1e-6); // 60*4
+    assert_relative_eq!(ad.derivative(f, x, 4), 240.0, epsilon = 1e-5); // 120*2
+    assert_relative_eq!(ad.derivative(f, x, 5), 120.0, epsilon = 1e-4); // 120
+}
+
+// ============================================================================
 // Edge Cases and Special Values
 // ============================================================================
 

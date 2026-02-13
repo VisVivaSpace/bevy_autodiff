@@ -328,7 +328,8 @@ pub fn build_cse_table(world: &World, output: Var) -> CseTable {
         // Register binary operations
         if let Some(op) = entity_ref.get::<BinaryOpMarker>() {
             if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
-                let sig = OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
+                let sig =
+                    OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
                 table.register(sig, entity);
             }
         }
@@ -360,14 +361,19 @@ pub fn count_cse_opportunities(world: &World, output: Var) -> usize {
 
         if let Some(op) = entity_ref.get::<BinaryOpMarker>() {
             if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
-                let sig = OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
+                let sig =
+                    OpSignature::binary(op.0.name(), inputs.left.entity(), inputs.right.entity());
                 *signatures.entry(sig).or_insert(0) += 1;
             }
         }
     }
 
     // Count duplicates (entries with count > 1)
-    signatures.values().filter(|&&count| count > 1).map(|&c| c - 1).sum()
+    signatures
+        .values()
+        .filter(|&&count| count > 1)
+        .map(|&c| c - 1)
+        .sum()
 }
 
 #[cfg(test)]
@@ -442,16 +448,28 @@ mod tests {
         let one = ad.constant(1.0);
 
         // exp(0) = 1
-        assert_eq!(simplify_unary(ad.world(), "exp", zero.entity()), SimplifyResult::Constant(1.0));
+        assert_eq!(
+            simplify_unary(ad.world(), "exp", zero.entity()),
+            SimplifyResult::Constant(1.0)
+        );
 
         // ln(1) = 0
-        assert_eq!(simplify_unary(ad.world(), "ln", one.entity()), SimplifyResult::Constant(0.0));
+        assert_eq!(
+            simplify_unary(ad.world(), "ln", one.entity()),
+            SimplifyResult::Constant(0.0)
+        );
 
         // sin(0) = 0
-        assert_eq!(simplify_unary(ad.world(), "sin", zero.entity()), SimplifyResult::Constant(0.0));
+        assert_eq!(
+            simplify_unary(ad.world(), "sin", zero.entity()),
+            SimplifyResult::Constant(0.0)
+        );
 
         // cos(0) = 1
-        assert_eq!(simplify_unary(ad.world(), "cos", zero.entity()), SimplifyResult::Constant(1.0));
+        assert_eq!(
+            simplify_unary(ad.world(), "cos", zero.entity()),
+            SimplifyResult::Constant(1.0)
+        );
     }
 
     #[test]
@@ -502,18 +520,18 @@ mod tests {
 
         // Create duplicate expressions
         let xy1 = ad.mul(x, y);
-        let xy2 = ad.mul(x, y);  // Duplicate!
+        let xy2 = ad.mul(x, y); // Duplicate!
         let result = ad.add(xy1, xy2);
 
         let count = count_cse_opportunities(ad.world(), result);
-        assert_eq!(count, 1);  // One duplicate mul(x, y)
+        assert_eq!(count, 1); // One duplicate mul(x, y)
     }
 
     #[test]
     fn test_build_cse_table() {
         let mut ad = AutoDiff::new();
         let x = ad.var(2.0);
-        let y = ad.square(x);  // x * x
+        let y = ad.square(x); // x * x
 
         let table = build_cse_table(ad.world(), y);
 

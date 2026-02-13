@@ -150,15 +150,11 @@ mod tests {
     use crate::UnaryOp;
 
     fn create_input(world: &mut World, value: f64) -> Entity {
-        world
-            .spawn((Variable, IsInput, Value::new(value)))
-            .id()
+        world.spawn((Variable, IsInput, Value::new(value))).id()
     }
 
     fn create_constant(world: &mut World, value: f64) -> Entity {
-        world
-            .spawn((Variable, IsConstant, Value::new(value)))
-            .id()
+        world.spawn((Variable, IsConstant, Value::new(value))).id()
     }
 
     fn create_binary(world: &mut World, op: BinaryOp, left: Entity, right: Entity) -> Entity {

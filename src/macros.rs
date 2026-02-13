@@ -423,7 +423,10 @@ mod tests {
 
         // Rosenbrock at (1,1) should be 0
         // f = (1-x)² + 100(y-x²)²
-        let f = expr!(ad, (1.0 - x) * (1.0 - x) + 100.0 * (y - x * x) * (y - x * x));
+        let f = expr!(
+            ad,
+            (1.0 - x) * (1.0 - x) + 100.0 * (y - x * x) * (y - x * x)
+        );
         assert_relative_eq!(ad.eval(f), 0.0, epsilon = 1e-10);
     }
 

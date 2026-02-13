@@ -12,9 +12,9 @@ use std::collections::HashMap;
 
 use bevy_ecs::entity::Entity;
 
+use crate::components::{BinaryInputs, UnaryInput};
 use crate::components::{BinaryOp, IsConstant, IsInput, UnaryOp, Value};
 use crate::context::{BinaryOpMarker, UnaryOpMarker};
-use crate::components::{BinaryInputs, UnaryInput};
 
 /// A node in the flattened computation graph.
 #[derive(Clone, Copy, Debug)]
@@ -26,7 +26,11 @@ pub enum NodeOp {
     /// Unary operation on node at index `src`.
     Unary { op: UnaryOp, src: usize },
     /// Binary operation on nodes at indices `lhs`, `rhs`.
-    Binary { op: BinaryOp, lhs: usize, rhs: usize },
+    Binary {
+        op: BinaryOp,
+        lhs: usize,
+        rhs: usize,
+    },
 }
 
 /// A compiled computation graph for fast repeated evaluation.
@@ -127,7 +131,10 @@ impl CompiledGraph {
 
     /// Returns all available partial multi-indices.
     pub fn available_partials(&self) -> Vec<Vec<usize>> {
-        self.partial_outputs.iter().map(|(mi, _)| mi.clone()).collect()
+        self.partial_outputs
+            .iter()
+            .map(|(mi, _)| mi.clone())
+            .collect()
     }
 }
 
@@ -143,11 +150,8 @@ pub(crate) fn flatten_graph(
     order: &[Entity],
     input_to_pos: &HashMap<Entity, usize>,
 ) -> (Vec<NodeOp>, HashMap<Entity, usize>) {
-    let entity_to_index: HashMap<Entity, usize> = order
-        .iter()
-        .enumerate()
-        .map(|(i, &e)| (e, i))
-        .collect();
+    let entity_to_index: HashMap<Entity, usize> =
+        order.iter().enumerate().map(|(i, &e)| (e, i)).collect();
 
     let mut nodes = Vec::with_capacity(order.len());
     for &entity in order {
@@ -288,15 +292,17 @@ mod tests {
     fn test_compiled_graph_eval_simple() {
         // Manual construction: f(x) = 2*x + 1
         let nodes = vec![
-            NodeOp::Input(0),       // node 0: x
-            NodeOp::Constant(2.0),  // node 1: 2
-            NodeOp::Binary {        // node 2: 2*x
+            NodeOp::Input(0),      // node 0: x
+            NodeOp::Constant(2.0), // node 1: 2
+            NodeOp::Binary {
+                // node 2: 2*x
                 op: BinaryOp::Mul,
                 lhs: 1,
                 rhs: 0,
             },
-            NodeOp::Constant(1.0),  // node 3: 1
-            NodeOp::Binary {        // node 4: 2*x + 1
+            NodeOp::Constant(1.0), // node 3: 1
+            NodeOp::Binary {
+                // node 4: 2*x + 1
                 op: BinaryOp::Add,
                 lhs: 2,
                 rhs: 3,

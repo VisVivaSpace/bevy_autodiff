@@ -6,8 +6,7 @@ use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
 use crate::components::{
-    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value,
-    Variable,
+    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value, Variable,
 };
 use crate::graph::topology::topological_order;
 use crate::var::Var;
@@ -522,14 +521,7 @@ impl AutoDiff {
     }
 
     /// Apply chain rule for a unary operation: z = op(a), given da = d(a)/d(wrt).
-    fn differentiate_unary(
-        &mut self,
-        op: UnaryOp,
-        z: Var,
-        a: Var,
-        da: Var,
-        one: Var,
-    ) -> Var {
+    fn differentiate_unary(&mut self, op: UnaryOp, z: Var, a: Var, da: Var, one: Var) -> Var {
         match op {
             UnaryOp::Neg => {
                 // d(-a) = -da
