@@ -649,6 +649,85 @@ impl AutoDiff {
         }
     }
 
+    /// Compiles the computation graph for a given output and inputs into a
+    /// flat representation that can be re-evaluated efficiently at new input
+    /// values without touching the ECS.
+    ///
+    /// `N` = number of Taylor coefficients (derivative order + 1).
+    /// `M` = number of input variables.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bevy_autodiff::AutoDiff;
+    ///
+    /// let mut ad = AutoDiff::new();
+    /// let x = ad.var(2.0);
+    /// let f = ad.square(x); // f = x²
+    ///
+    /// let mut cg = ad.compile::<3, 1>(f, &[x]);
+    /// cg.eval(&[3.0]);
+    /// assert!((cg.partial(&[1]) - 6.0).abs() < 1e-10); // df/dx = 2x = 6
+    /// ```
+    pub fn compile<const N: usize, const M: usize>(
+        &self,
+        output: Var,
+        inputs: &[Var; M],
+    ) -> crate::compiled::CompiledGraph<N, M> {
+        use crate::compiled::NodeOp;
+        use crate::graph::topological_order;
+        use std::collections::HashMap;
+
+        let topo = topological_order(&self.world, output.entity());
+
+        // Map each entity to a flat node index
+        let mut entity_to_idx: HashMap<bevy_ecs::entity::Entity, usize> = HashMap::new();
+        for (i, &entity) in topo.iter().enumerate() {
+            entity_to_idx.insert(entity, i);
+        }
+
+        // Build input entity -> input index mapping
+        let mut input_entity_to_idx: HashMap<bevy_ecs::entity::Entity, usize> = HashMap::new();
+        for (i, var) in inputs.iter().enumerate() {
+            input_entity_to_idx.insert(var.entity(), i);
+        }
+
+        // Convert each entity to a NodeOp
+        let mut nodes = Vec::with_capacity(topo.len());
+        for &entity in &topo {
+            let entity_ref = self.world.entity(entity);
+
+            let node = if let Some(&input_idx) = input_entity_to_idx.get(&entity) {
+                NodeOp::Input(input_idx)
+            } else if entity_ref.contains::<IsConstant>() {
+                let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
+                NodeOp::Constant(value)
+            } else if let Some(op_marker) = entity_ref.get::<crate::context::UnaryOpMarker>() {
+                let input_handle = entity_ref
+                    .get::<UnaryInput>()
+                    .expect("UnaryOp missing input");
+                let src = entity_to_idx[&input_handle.get().entity()];
+                NodeOp::Unary { op: op_marker.0, src }
+            } else if let Some(op_marker) = entity_ref.get::<crate::context::BinaryOpMarker>() {
+                let bin_inputs = entity_ref
+                    .get::<BinaryInputs>()
+                    .expect("BinaryOp missing inputs");
+                let lhs = entity_to_idx[&bin_inputs.left.entity()];
+                let rhs = entity_to_idx[&bin_inputs.right.entity()];
+                NodeOp::Binary { op: op_marker.0, lhs, rhs }
+            } else {
+                // Unknown node type — treat as constant
+                let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
+                NodeOp::Constant(value)
+            };
+
+            nodes.push(node);
+        }
+
+        let output_node = entity_to_idx[&output.entity()];
+        crate::compiled::CompiledGraph::new(nodes, output_node)
+    }
+
     /// Clears all cached Taylor coefficients.
     ///
     /// Call this when you want to force recomputation of all derivatives,

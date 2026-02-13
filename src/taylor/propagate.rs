@@ -94,7 +94,7 @@ pub fn compute_taylor_coeffs(
 }
 
 /// Computes Taylor coefficients for a unary operation.
-fn compute_unary_taylor(op: UnaryOp, input: &[f64], order: usize) -> TaylorCoeffs {
+pub(crate) fn compute_unary_taylor(op: UnaryOp, input: &[f64], order: usize) -> TaylorCoeffs {
     use crate::taylor::rules::{
         acos_taylor, acosh_taylor, asin_taylor, asinh_taylor, atan_taylor, atanh_taylor,
         cos_taylor, cosh_taylor, exp_taylor, ln_taylor, sin_taylor, sinh_taylor, sqrt_taylor,
@@ -122,7 +122,7 @@ fn compute_unary_taylor(op: UnaryOp, input: &[f64], order: usize) -> TaylorCoeff
 }
 
 /// Computes Taylor coefficients for a binary operation.
-fn compute_binary_taylor(op: BinaryOp, left: &[f64], right: &[f64], order: usize) -> TaylorCoeffs {
+pub(crate) fn compute_binary_taylor(op: BinaryOp, left: &[f64], right: &[f64], order: usize) -> TaylorCoeffs {
     use crate::taylor::rules::pow_taylor;
 
     match op {

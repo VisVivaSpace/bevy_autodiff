@@ -43,6 +43,7 @@
 //! - `context`: Main `AutoDiff` API for graph construction
 //! - `util`: Numerical utilities (factorial, binomial, Horner evaluation)
 
+pub mod compiled;
 pub mod components;
 pub mod context;
 pub mod debug;
@@ -64,6 +65,7 @@ pub mod ops;
 mod tests;
 
 // Re-exports for convenience
+pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
 pub use error::{TaylorError, TaylorResult};
 pub use var::Var;

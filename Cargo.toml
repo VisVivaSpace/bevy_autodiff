@@ -21,6 +21,11 @@ proc-macros = ["bevy_autodiff-macros"]
 [dev-dependencies]
 approx = "0.5"
 autodiff = "0.7"
+criterion = "0.5"
+
+[[bench]]
+name = "compiled_vs_ecs"
+harness = false
 
 [[example]]
 name = "basic"
