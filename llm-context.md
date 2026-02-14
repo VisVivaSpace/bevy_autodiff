@@ -23,7 +23,7 @@ Use `bevy_autodiff` when you need:
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.2"
+bevy_autodiff = "0.3"
 ```
 
 ## Core API

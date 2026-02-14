@@ -19,7 +19,7 @@ Variables are ECS entities, operations are components, and derivatives are compu
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.2"
+bevy_autodiff = "0.3"
 ```
 
 ## Quick Start
@@ -136,7 +136,7 @@ With the `proc-macros` feature, the `#[autodiff]` attribute transforms regular f
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.2", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.3", features = ["proc-macros"] }
 ```
 
 ```rust

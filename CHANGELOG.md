@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-13
+
+### Changed
+
+- Updated to Rust 2024 edition
+- Updated `bevy_ecs` dependency from 0.15 to 0.18
+- Updated `bevy_entity_ptr` dependency from 0.1 to 0.5
+- Updated MSRV from 1.77 to 1.89
+- Applied Rust 2024 `if let` chain idioms (collapsible `if` statements)
+- Replaced removed `Entity::from_raw()` with `Entity::from_raw_u32()` in tests
+
 ## [0.2.0] - 2026-02-13
 
 ### Added
@@ -47,5 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Oracle validation against the `autodiff` crate
 - Operator overloading via `with_context`
 
+[0.3.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/VisVivaSpace/bevy_autodiff/releases/tag/v0.1.0

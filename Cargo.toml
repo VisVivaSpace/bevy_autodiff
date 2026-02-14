@@ -1,8 +1,8 @@
 [package]
 name = "bevy_autodiff"
-version = "0.2.0"
-edition = "2021"
-rust-version = "1.77"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.89"
 authors = ["Nathan Strange <info@visviva.space>"]
 description = "Automatic differentiation using Bevy ECS as computation graph"
 license = "MIT"
@@ -15,8 +15,8 @@ categories = ["science", "mathematics"]
 exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 
 [dependencies]
-bevy_ecs = "0.15"
-bevy_entity_ptr = "0.1.0"
+bevy_ecs = "0.18"
+bevy_entity_ptr = "0.5"
 bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
 
 [features]

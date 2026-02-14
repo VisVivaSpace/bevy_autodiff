@@ -101,19 +101,16 @@ pub fn simplify_binary(
                 return SimplifyResult::UseLeft;
             }
             // 0 / x = 0 (when x is constant and non-zero)
-            if left_const == Some(0.0) {
-                if let Some(r) = right_const {
-                    if r != 0.0 {
+            if left_const == Some(0.0)
+                && let Some(r) = right_const
+                    && r != 0.0 {
                         return SimplifyResult::Constant(0.0);
                     }
-                }
-            }
             // Fold constants (avoid division by zero)
-            if let (Some(l), Some(r)) = (left_const, right_const) {
-                if r != 0.0 {
+            if let (Some(l), Some(r)) = (left_const, right_const)
+                && r != 0.0 {
                     return SimplifyResult::Constant(l / r);
                 }
-            }
         }
         BinaryOp::Pow => {
             // x^0 = 1
@@ -181,11 +178,10 @@ pub fn simplify_unary(world: &World, op: UnaryOp, input: Entity) -> SimplifyResu
                 return SimplifyResult::Constant(0.0);
             }
             // Fold constant (only for positive values)
-            if let Some(v) = input_const {
-                if v > 0.0 {
+            if let Some(v) = input_const
+                && v > 0.0 {
                     return SimplifyResult::Constant(v.ln());
                 }
-            }
         }
         UnaryOp::Sqrt => {
             // sqrt(0) = 0
@@ -197,11 +193,10 @@ pub fn simplify_unary(world: &World, op: UnaryOp, input: Entity) -> SimplifyResu
                 return SimplifyResult::Constant(1.0);
             }
             // Fold constant (only for non-negative values)
-            if let Some(v) = input_const {
-                if v >= 0.0 {
+            if let Some(v) = input_const
+                && v >= 0.0 {
                     return SimplifyResult::Constant(v.sqrt());
                 }
-            }
         }
         UnaryOp::Sin => {
             // sin(0) = 0
@@ -336,21 +331,19 @@ pub fn build_cse_table(world: &World, output: Var) -> CseTable {
         }
 
         // Register unary operations
-        if let Some(marker) = entity_ref.get::<UnaryOpMarker>() {
-            if let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
+        if let Some(marker) = entity_ref.get::<UnaryOpMarker>()
+            && let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
                 let sig = OpSignature::unary(marker.op(), input.get().entity());
                 table.register(sig, entity);
             }
-        }
 
         // Register binary operations
-        if let Some(marker) = entity_ref.get::<BinaryOpMarker>() {
-            if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
+        if let Some(marker) = entity_ref.get::<BinaryOpMarker>()
+            && let Some(inputs) = entity_ref.get::<BinaryInputs>() {
                 let sig =
                     OpSignature::binary(marker.op(), inputs.left.entity(), inputs.right.entity());
                 table.register(sig, entity);
             }
-        }
     }
 
     table
@@ -370,20 +363,18 @@ pub fn count_cse_opportunities(world: &World, output: Var) -> usize {
             continue;
         }
 
-        if let Some(marker) = entity_ref.get::<UnaryOpMarker>() {
-            if let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
+        if let Some(marker) = entity_ref.get::<UnaryOpMarker>()
+            && let Some(input) = entity_ref.get::<crate::components::UnaryInput>() {
                 let sig = OpSignature::unary(marker.op(), input.get().entity());
                 *signatures.entry(sig).or_insert(0) += 1;
             }
-        }
 
-        if let Some(marker) = entity_ref.get::<BinaryOpMarker>() {
-            if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
+        if let Some(marker) = entity_ref.get::<BinaryOpMarker>()
+            && let Some(inputs) = entity_ref.get::<BinaryInputs>() {
                 let sig =
                     OpSignature::binary(marker.op(), inputs.left.entity(), inputs.right.entity());
                 *signatures.entry(sig).or_insert(0) += 1;
             }
-        }
     }
 
     // Count duplicates (entries with count > 1)
@@ -495,9 +486,9 @@ mod tests {
         let mut table = CseTable::new();
 
         // Create dummy entity IDs for testing
-        let e1 = Entity::from_raw(1);
-        let e2 = Entity::from_raw(2);
-        let e3 = Entity::from_raw(3);
+        let e1 = Entity::from_raw_u32(1).unwrap();
+        let e2 = Entity::from_raw_u32(2).unwrap();
+        let e3 = Entity::from_raw_u32(3).unwrap();
 
         let sig1 = OpSignature::binary(BinaryOp::Add, e1, e2);
         table.register(sig1.clone(), e3);
@@ -511,8 +502,8 @@ mod tests {
 
     #[test]
     fn test_op_signature_commutativity() {
-        let e1 = Entity::from_raw(1);
-        let e2 = Entity::from_raw(2);
+        let e1 = Entity::from_raw_u32(1).unwrap();
+        let e2 = Entity::from_raw_u32(2).unwrap();
 
         // add(e1, e2) should equal add(e2, e1)
         let sig1 = OpSignature::binary(BinaryOp::Add, e1, e2);
