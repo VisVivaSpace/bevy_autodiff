@@ -43,6 +43,10 @@ pub struct AutoDiff {
     input_count: usize,
     /// Input variables in creation order.
     inputs: Vec<Var>,
+    /// Cached constant 0.0 entity (avoids creating duplicates in differentiate).
+    cached_zero: Option<Var>,
+    /// Cached constant 1.0 entity (avoids creating duplicates in differentiate).
+    cached_one: Option<Var>,
 }
 
 impl AutoDiff {
@@ -53,6 +57,8 @@ impl AutoDiff {
             world: World::new(),
             input_count: 0,
             inputs: Vec::new(),
+            cached_zero: None,
+            cached_one: None,
         }
     }
 
@@ -470,8 +476,8 @@ impl AutoDiff {
         let order = topological_order(&self.world, output.entity());
         let mut derivs: HashMap<bevy_ecs::entity::Entity, Var> = HashMap::new();
 
-        let zero = self.constant(0.0);
-        let one = self.constant(1.0);
+        let zero = self.zero();
+        let one = self.one();
 
         for &entity in &order {
             // Extract all info from the entity before any mutations
@@ -679,7 +685,7 @@ impl AutoDiff {
                     if self.is_const_value(b, 0.0) {
                         return self.constant(0.0);
                     }
-                    let one = self.constant(1.0);
+                    let one = self.one();
                     let b_minus_1 = self.sub(b, one);
                     let a_pow = self.pow(a, b_minus_1);
                     let b_times = self.smart_mul(b, a_pow);
@@ -894,6 +900,19 @@ impl AutoDiff {
         CompiledGraph::new(nodes, inputs.len(), output_index, partial_outputs)
     }
 
+    /// Compiles only the function value (no symbolic derivatives).
+    ///
+    /// Use `CompiledGraph::gradient()` for first-order partials via reverse mode,
+    /// which computes the full gradient in a single backward pass regardless of
+    /// the number of inputs.
+    pub fn compile_primal(
+        &mut self,
+        output: Var,
+        inputs: &[Var],
+    ) -> crate::compiled::CompiledGraph {
+        self.compile(output, inputs, &[])
+    }
+
     /// Compiles the computation graph with all partials up to `max_order`.
     ///
     /// Convenience wrapper around `compile()` that generates all
@@ -906,6 +925,30 @@ impl AutoDiff {
     ) -> crate::compiled::CompiledGraph {
         let partials = crate::compiled::generate_multi_indices(inputs.len(), max_order);
         self.compile(output, inputs, &partials)
+    }
+
+    // =========================================================================
+    // Cached constants (reused across differentiate() calls)
+    // =========================================================================
+
+    /// Returns a cached constant 0.0 entity, creating it on first use.
+    fn zero(&mut self) -> Var {
+        if let Some(v) = self.cached_zero {
+            return v;
+        }
+        let v = self.constant(0.0);
+        self.cached_zero = Some(v);
+        v
+    }
+
+    /// Returns a cached constant 1.0 entity, creating it on first use.
+    fn one(&mut self) -> Var {
+        if let Some(v) = self.cached_one {
+            return v;
+        }
+        let v = self.constant(1.0);
+        self.cached_one = Some(v);
+        v
     }
 
     // =========================================================================
@@ -1940,5 +1983,415 @@ mod tests {
             "d(x+y)/dy should be constant-folded to 1"
         );
         assert_eq!(ad.eval(df_dy), 1.0);
+    }
+
+    // =========================================================================
+    // Reverse-mode cross-validation tests
+    // =========================================================================
+
+    /// Helper: builds a compiled graph for f(x,y) and checks that
+    /// reverse-mode gradient matches forward-mode symbolic partials.
+    fn assert_reverse_matches_forward(
+        build_fn: impl FnOnce(&mut AutoDiff, Var, Var) -> Var,
+        points: &[(f64, f64)],
+        epsilon: f64,
+    ) {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(points[0].0);
+        let y = ad.var(points[0].1);
+        let f = build_fn(&mut ad, x, y);
+
+        // Forward-mode: compile with order-1 symbolic partials
+        let mut cg_fwd = ad.compile_order(f, &[x, y], 1);
+
+        // Reverse-mode: compile primal only
+        let mut cg_rev = ad.compile_primal(f, &[x, y]);
+
+        for &(xv, yv) in points {
+            cg_fwd.eval(&[xv, yv]);
+            let fwd_dfdx = cg_fwd.partial(&[1, 0]);
+            let fwd_dfdy = cg_fwd.partial(&[0, 1]);
+
+            cg_rev.eval(&[xv, yv]);
+            let rev_grad = cg_rev.gradient();
+
+            assert_relative_eq!(rev_grad[0], fwd_dfdx, epsilon = epsilon);
+            assert_relative_eq!(rev_grad[1], fwd_dfdy, epsilon = epsilon);
+        }
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_mul() {
+        // f = x * y
+        assert_reverse_matches_forward(
+            |ad, x, y| ad.mul(x, y),
+            &[(2.0, 3.0), (0.5, -1.5), (1.0, 1.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_add() {
+        // f = x + y
+        assert_reverse_matches_forward(
+            |ad, x, y| ad.add(x, y),
+            &[(2.0, 3.0), (-1.0, 5.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_sub() {
+        // f = x - y
+        assert_reverse_matches_forward(
+            |ad, x, y| ad.sub(x, y),
+            &[(2.0, 3.0), (5.0, 1.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_div() {
+        // f = x / y
+        assert_reverse_matches_forward(
+            |ad, x, y| ad.div(x, y),
+            &[(6.0, 3.0), (1.0, 2.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_pow() {
+        // f = x^y
+        assert_reverse_matches_forward(
+            |ad, x, y| ad.pow(x, y),
+            &[(2.0, 3.0), (3.0, 2.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_rosenbrock() {
+        // f = (1-x)² + 100(y-x²)²
+        assert_reverse_matches_forward(
+            |ad, x, y| {
+                let one = ad.constant(1.0);
+                let hundred = ad.constant(100.0);
+                let one_minus_x = ad.sub(one, x);
+                let term1 = ad.square(one_minus_x);
+                let x_sq = ad.square(x);
+                let y_minus_x_sq = ad.sub(y, x_sq);
+                let term2_inner = ad.square(y_minus_x_sq);
+                let term2 = ad.mul(hundred, term2_inner);
+                ad.add(term1, term2)
+            },
+            &[(0.0, 0.0), (1.0, 1.0), (0.5, 0.8), (-1.0, 2.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_sin_cos_composition() {
+        // f = sin(x) * cos(y)
+        assert_reverse_matches_forward(
+            |ad, x, y| {
+                let sx = ad.sin(x);
+                let cy = ad.cos(y);
+                ad.mul(sx, cy)
+            },
+            &[(0.5, 0.7), (1.0, 2.0), (0.0, 0.0)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_exp_chain() {
+        // f = exp(x * y)
+        assert_reverse_matches_forward(
+            |ad, x, y| {
+                let xy = ad.mul(x, y);
+                ad.exp(xy)
+            },
+            &[(0.5, 0.3), (1.0, 0.5)],
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_vs_forward_complex() {
+        // f = ln(x² + y²)
+        assert_reverse_matches_forward(
+            |ad, x, y| {
+                let x2 = ad.square(x);
+                let y2 = ad.square(y);
+                let sum = ad.add(x2, y2);
+                ad.ln(sum)
+            },
+            &[(1.0, 1.0), (2.0, 3.0), (0.5, 1.5)],
+            1e-10,
+        );
+    }
+
+    // =========================================================================
+    // Per-operation gradient tests (1D, reverse mode)
+    // =========================================================================
+
+    /// Helper for single-input per-operation gradient tests.
+    fn assert_gradient_1d(
+        build_fn: impl FnOnce(&mut AutoDiff, Var) -> Var,
+        points: &[f64],
+        expected_fn: impl Fn(f64) -> f64,
+        epsilon: f64,
+    ) {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(points[0]);
+        let f = build_fn(&mut ad, x);
+
+        let mut cg = ad.compile_primal(f, &[x]);
+        for &xv in points {
+            cg.eval(&[xv]);
+            let grad = cg.gradient();
+            assert_relative_eq!(grad[0], expected_fn(xv), epsilon = epsilon);
+        }
+    }
+
+    #[test]
+    fn test_reverse_gradient_neg() {
+        assert_gradient_1d(|ad, x| ad.neg(x), &[1.0, -2.0, 0.0], |_| -1.0, 1e-12);
+    }
+
+    #[test]
+    fn test_reverse_gradient_sin() {
+        assert_gradient_1d(
+            |ad, x| ad.sin(x),
+            &[0.0, 0.5, 1.0, 2.0],
+            |x| x.cos(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_cos() {
+        assert_gradient_1d(
+            |ad, x| ad.cos(x),
+            &[0.0, 0.5, 1.0, 2.0],
+            |x| -x.sin(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_tan() {
+        assert_gradient_1d(
+            |ad, x| ad.tan(x),
+            &[0.0, 0.3, 0.7],
+            |x| 1.0 / (x.cos() * x.cos()),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_exp() {
+        assert_gradient_1d(
+            |ad, x| ad.exp(x),
+            &[0.0, 1.0, -1.0, 2.0],
+            |x| x.exp(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_ln() {
+        assert_gradient_1d(
+            |ad, x| ad.ln(x),
+            &[0.5, 1.0, 2.0, 10.0],
+            |x| 1.0 / x,
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_sqrt() {
+        assert_gradient_1d(
+            |ad, x| ad.sqrt(x),
+            &[1.0, 4.0, 9.0],
+            |x| 0.5 / x.sqrt(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_sinh() {
+        assert_gradient_1d(
+            |ad, x| ad.sinh(x),
+            &[0.0, 1.0, -1.0],
+            |x| x.cosh(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_cosh() {
+        assert_gradient_1d(
+            |ad, x| ad.cosh(x),
+            &[0.0, 1.0, -1.0],
+            |x| x.sinh(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_tanh() {
+        assert_gradient_1d(
+            |ad, x| ad.tanh(x),
+            &[0.0, 0.5, -0.5],
+            |x| 1.0 - x.tanh().powi(2),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_asin() {
+        assert_gradient_1d(
+            |ad, x| ad.asin(x),
+            &[0.0, 0.3, 0.5, -0.3],
+            |x| 1.0 / (1.0 - x * x).sqrt(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_acos() {
+        assert_gradient_1d(
+            |ad, x| ad.acos(x),
+            &[0.0, 0.3, 0.5, -0.3],
+            |x| -1.0 / (1.0 - x * x).sqrt(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_atan() {
+        assert_gradient_1d(
+            |ad, x| ad.atan(x),
+            &[0.0, 1.0, -1.0, 2.0],
+            |x| 1.0 / (1.0 + x * x),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_asinh() {
+        assert_gradient_1d(
+            |ad, x| ad.asinh(x),
+            &[0.0, 1.0, -1.0, 2.0],
+            |x| 1.0 / (x * x + 1.0).sqrt(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_acosh() {
+        assert_gradient_1d(
+            |ad, x| ad.acosh(x),
+            &[1.5, 2.0, 3.0],
+            |x| 1.0 / (x * x - 1.0).sqrt(),
+            1e-10,
+        );
+    }
+
+    #[test]
+    fn test_reverse_gradient_atanh() {
+        assert_gradient_1d(
+            |ad, x| ad.atanh(x),
+            &[0.0, 0.3, -0.3, 0.5],
+            |x| 1.0 / (1.0 - x * x),
+            1e-10,
+        );
+    }
+
+    // Binary ops as 2D gradient tests
+
+    #[test]
+    fn test_reverse_gradient_add_2d() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.add(x, y);
+
+        let mut cg = ad.compile_primal(f, &[x, y]);
+        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
+        assert_relative_eq!(grad[1], 1.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_reverse_gradient_sub_2d() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.sub(x, y);
+
+        let mut cg = ad.compile_primal(f, &[x, y]);
+        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
+        assert_relative_eq!(grad[1], -1.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_reverse_gradient_mul_2d() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+
+        let mut cg = ad.compile_primal(f, &[x, y]);
+        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        assert_relative_eq!(grad[0], 3.0, epsilon = 1e-12); // df/dx = y
+        assert_relative_eq!(grad[1], 2.0, epsilon = 1e-12); // df/dy = x
+    }
+
+    #[test]
+    fn test_reverse_gradient_div_2d() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(6.0);
+        let y = ad.var(3.0);
+        let f = ad.div(x, y);
+
+        let mut cg = ad.compile_primal(f, &[x, y]);
+        let grad = cg.eval_gradient(&[6.0, 3.0]);
+        assert_relative_eq!(grad[0], 1.0 / 3.0, epsilon = 1e-12);    // df/dx = 1/y
+        assert_relative_eq!(grad[1], -6.0 / 9.0, epsilon = 1e-12);   // df/dy = -x/y²
+    }
+
+    #[test]
+    fn test_reverse_gradient_pow_2d() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.pow(x, y);
+
+        let mut cg = ad.compile_primal(f, &[x, y]);
+        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        // df/dx = y * x^(y-1) = 3 * 4 = 12
+        assert_relative_eq!(grad[0], 12.0, epsilon = 1e-10);
+        // df/dy = x^y * ln(x) = 8 * ln(2)
+        assert_relative_eq!(grad[1], 8.0 * 2.0_f64.ln(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_compile_primal_matches_compile() {
+        // Verify compile_primal gives same value as compile
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0);
+        let y = ad.var(3.0);
+        let f = ad.mul(x, y);
+
+        let mut cg_primal = ad.compile_primal(f, &[x, y]);
+        let mut cg_full = ad.compile(f, &[x, y], &[]);
+
+        cg_primal.eval(&[2.0, 3.0]);
+        cg_full.eval(&[2.0, 3.0]);
+        assert_eq!(cg_primal.value(), cg_full.value());
     }
 }

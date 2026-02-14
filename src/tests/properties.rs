@@ -503,6 +503,11 @@ fn test_chain_rule_exp_ln_inverse() {
 #[test]
 fn test_higher_order_derivative_polynomial() {
     // f = x^5, f'=5x^4, f''=20x^3, f'''=60x^2, f''''=120x, f'''''=120
+    //
+    // Tolerances degrade ~10x per derivative order because powi(x, 5) delegates
+    // to powf (not repeated multiplication), and each successive differentiation
+    // builds a deeper chain of pow calls that accumulate f64 rounding. If powi
+    // were special-cased to repeated mul, these would all be exact.
     let mut ad = AutoDiff::new();
     let x = ad.var(2.0);
     let f = ad.powi(x, 5);

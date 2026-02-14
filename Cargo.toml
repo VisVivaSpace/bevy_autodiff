@@ -1,15 +1,22 @@
 [package]
 name = "bevy_autodiff"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.77"
+authors = ["Nathan Strange <info@visviva.space>"]
 description = "Automatic differentiation using Bevy ECS as computation graph"
 license = "MIT"
 repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
+homepage = "https://github.com/VisVivaSpace/bevy_autodiff"
+documentation = "https://docs.rs/bevy_autodiff"
+readme = "README.md"
+keywords = ["autodiff", "automatic-differentiation", "bevy", "ecs", "derivatives"]
+categories = ["science", "mathematics"]
+exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 
 [dependencies]
 bevy_ecs = "0.15"
 bevy_entity_ptr = "0.1.0"
-thiserror = "1.0"
 bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
 
 [features]
@@ -21,6 +28,11 @@ proc-macros = ["bevy_autodiff-macros"]
 approx = "0.5"
 autodiff = "0.7"
 criterion = "0.5"
+rkf78 = "0.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[bench]]
 name = "compiled_vs_ecs"
@@ -45,3 +57,11 @@ path = "examples/rosenbrock.rs"
 [[example]]
 name = "orbital_mechanics"
 path = "examples/orbital_mechanics.rs"
+
+[[example]]
+name = "reverse_gradient"
+path = "examples/reverse_gradient.rs"
+
+[[example]]
+name = "stm_propagation"
+path = "examples/stm_propagation.rs"

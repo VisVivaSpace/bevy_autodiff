@@ -1,6 +1,6 @@
 //! Ergonomic macros for building computation graphs.
 //!
-//! The [`expr!`] macro transforms natural Rust expressions into
+//! The `expr!` macro transforms natural Rust expressions into
 //! AutoDiff method calls, making graph construction more readable.
 //!
 //! # Example

@@ -116,6 +116,29 @@ fn compare_atan() {
     }
 }
 
+#[test]
+fn compare_asinh() {
+    for &x in &[0.0, 0.5, 1.0, -1.0, 2.0] {
+        compare_unary(x, |ad, x| ad.asinh(x), |x| x.asinh());
+    }
+}
+
+#[test]
+fn compare_acosh() {
+    // acosh requires x > 1
+    for &x in &[1.1, 1.5, 2.0, 5.0] {
+        compare_unary(x, |ad, x| ad.acosh(x), |x| x.acosh());
+    }
+}
+
+#[test]
+fn compare_atanh() {
+    // atanh requires |x| < 1
+    for &x in &[0.0, 0.3, 0.5, -0.5, 0.9] {
+        compare_unary(x, |ad, x| ad.atanh(x), |x| x.atanh());
+    }
+}
+
 // ============================================================================
 // Compositions
 // ============================================================================

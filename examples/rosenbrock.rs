@@ -32,29 +32,14 @@ fn main() {
     let grad = ad.gradient(f);
     println!("gradient at (0, 0) = {:?} (should be [-2.0, 0.0])", grad);
 
-    // At minimum (1,1): f = 0, gradient = [0, 0]
+    // At minimum (1,1): gradient = [0, 0]
+    // gradient() uses CompiledGraph internally, so it evaluates correctly
+    // at the current input values — no need to rebuild the graph.
     ad.set_input(x, 1.0);
     ad.set_input(y, 1.0);
 
-    // Rebuild graph at new values (set_input only updates leaf values,
-    // not the computed nodes, so we rebuild)
-    let mut ad2 = AutoDiff::new();
-    let x2 = ad2.var(1.0);
-    let y2 = ad2.var(1.0);
-    let one2 = ad2.constant(1.0);
-    let hundred2 = ad2.constant(100.0);
-
-    let a_minus_x2 = ad2.sub(one2, x2);
-    let t1 = ad2.square(a_minus_x2);
-    let x_sq2 = ad2.square(x2);
-    let y_minus2 = ad2.sub(y2, x_sq2);
-    let ds2 = ad2.square(y_minus2);
-    let t2 = ad2.mul(hundred2, ds2);
-    let f2 = ad2.add(t1, t2);
-
-    println!("\nf(1, 1) = {} (should be 0)", ad2.eval(f2));
-    let grad2 = ad2.gradient(f2);
-    println!("gradient at (1, 1) = {:?} (should be [0.0, 0.0])", grad2);
+    let grad2 = ad.gradient(f);
+    println!("\ngradient at (1, 1) = {:?} (should be [0.0, 0.0])", grad2);
 
     // Use compiled graph for fast repeated evaluation
     println!("\n--- CompiledGraph for Rosenbrock ---");

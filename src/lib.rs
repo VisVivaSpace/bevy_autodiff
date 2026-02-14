@@ -2,13 +2,20 @@
 //!
 //! `bevy_autodiff` implements automatic differentiation using symbolic graph
 //! differentiation, with Bevy ECS as the computational graph backend.
+//! Variables are ECS entities, operations are components, and derivatives
+//! are computed by applying the chain rule symbolically with constant folding.
 //!
 //! # Core Concepts
 //!
 //! - **ECS as computation graph**: Variables are entities, operations are components
-//! - **Symbolic differentiation**: `differentiate(output, wrt)` creates new entities representing the derivative graph
+//! - **Symbolic differentiation**: [`AutoDiff::differentiate`] creates new entities
+//!   representing the derivative graph via the chain rule
 //! - **Successive differentiation**: For d²f/dxdy, differentiate f w.r.t. x then w.r.t. y
-//! - **Functional style**: Immutable graph nodes, pure differentiation
+//! - **[`CompiledGraph`]**: Flattens the ECS graph into a `Vec<NodeOp>` for fast repeated evaluation
+//! - **Reverse-mode gradient**: [`CompiledGraph::gradient`] computes all partial derivatives
+//!   in a single backward pass, independent of input count
+//! - **Forward-mode partials**: [`AutoDiff::compile_order`] pre-compiles symbolic derivative
+//!   subgraphs for higher-order or mixed partial derivatives
 //!
 //! # Example
 //!
@@ -33,12 +40,33 @@
 //! let d2fdxdy = ad.differentiate(dfdx, y);
 //! assert_eq!(ad.eval(d2fdxdy), 1.0);
 //! ```
+//!
+//! # Reverse-mode gradient
+//!
+//! ```
+//! use bevy_autodiff::AutoDiff;
+//!
+//! let mut ad = AutoDiff::new();
+//! let x = ad.var(1.0);
+//! let y = ad.var(2.0);
+//!
+//! let x2 = ad.square(x);
+//! let y2 = ad.square(y);
+//! let f = ad.add(x2, y2); // x² + y²
+//!
+//! // Compile primal only, then use reverse-mode for gradient
+//! let mut cg = ad.compile_primal(f, &[x, y]);
+//! cg.eval(&[1.0, 2.0]);
+//! assert_eq!(cg.value(), 5.0);
+//!
+//! let grad = cg.gradient();
+//! assert_eq!(grad, &[2.0, 4.0]); // [2x, 2y]
+//! ```
 
 pub mod compiled;
 pub mod components;
 pub mod context;
 pub mod debug;
-pub mod error;
 pub mod graph;
 #[macro_use]
 pub mod macros;
@@ -55,7 +83,6 @@ mod tests;
 // Re-exports for convenience
 pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
-pub use error::{AutoDiffError, AutoDiffResult};
 pub use var::Var;
 
 // Re-export key component types

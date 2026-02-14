@@ -20,7 +20,7 @@ use crate::components::{
 /// A node in the flattened computation graph.
 #[derive(Clone, Copy, Debug)]
 pub enum NodeOp {
-    /// Read from inputs[index].
+    /// Read from `inputs[index]`.
     Input(usize),
     /// Fixed constant value.
     Constant(f64),
@@ -36,10 +36,23 @@ pub enum NodeOp {
 
 /// A compiled computation graph for fast repeated evaluation.
 ///
-/// Created by [`AutoDiff::compile`] or [`AutoDiff::compile_order`].
-/// Stores a flattened node array for the function value and all
-/// requested partial derivatives, enabling fast forward-pass evaluation
-/// without ECS overhead.
+/// Created by [`AutoDiff::compile`](crate::AutoDiff::compile),
+/// [`AutoDiff::compile_order`](crate::AutoDiff::compile_order), or
+/// [`AutoDiff::compile_primal`](crate::AutoDiff::compile_primal).
+/// Stores a flattened, topologically sorted
+/// node array that can be re-evaluated at new input values without
+/// touching the ECS world.
+///
+/// # Evaluation modes
+///
+/// - **Forward-mode symbolic partials**: When compiled with `compile()` or
+///   `compile_order()`, derivative subgraphs are pre-built. Use [`eval`](Self::eval)
+///   + [`partial`](Self::partial) to read pre-computed derivatives.
+///
+/// - **Reverse-mode gradient**: When compiled with `compile_primal()` (or any
+///   compile method), use [`eval`](Self::eval) + [`gradient`](Self::gradient) to
+///   compute the full gradient via a single backward pass. Cost is independent
+///   of the number of inputs.
 pub struct CompiledGraph {
     nodes: Vec<NodeOp>,
     num_inputs: usize,
@@ -47,6 +60,12 @@ pub struct CompiledGraph {
     partial_outputs: Vec<(Vec<usize>, usize)>,
     partial_lookup: HashMap<Vec<usize>, usize>,
     values: Vec<f64>,
+    /// Adjoint buffer for reverse-mode gradient computation.
+    adjoints: Vec<f64>,
+    /// Maps input position i to the node index of `NodeOp::Input(i)`.
+    input_node_indices: Vec<usize>,
+    /// Reusable output buffer for gradient results (length = num_inputs).
+    gradient_buf: Vec<f64>,
 }
 
 impl CompiledGraph {
@@ -62,6 +81,16 @@ impl CompiledGraph {
             .iter()
             .map(|(mi, idx)| (mi.clone(), *idx))
             .collect();
+
+        // Build input_node_indices: for each input position 0..num_inputs,
+        // find the node index that contains NodeOp::Input(pos).
+        let mut input_node_indices = vec![0usize; num_inputs];
+        for (i, node) in nodes.iter().enumerate() {
+            if let NodeOp::Input(pos) = node {
+                input_node_indices[*pos] = i;
+            }
+        }
+
         Self {
             nodes,
             num_inputs,
@@ -69,6 +98,9 @@ impl CompiledGraph {
             partial_outputs,
             partial_lookup,
             values: vec![0.0; num_nodes],
+            adjoints: vec![0.0; num_nodes],
+            input_node_indices,
+            gradient_buf: vec![0.0; num_inputs],
         }
     }
 
@@ -140,6 +172,77 @@ impl CompiledGraph {
             .iter()
             .map(|(mi, _)| mi.clone())
             .collect()
+    }
+
+    // =========================================================================
+    // Reverse-mode gradient computation
+    // =========================================================================
+
+    /// Computes the gradient of the primary output with respect to all inputs
+    /// via a reverse-mode backward pass.
+    ///
+    /// Must call `eval()` first so that forward values are populated.
+    /// Returns a slice of length `num_inputs` where element `i` is
+    /// `∂output/∂input_i`.
+    pub fn gradient(&mut self) -> &[f64] {
+        self.gradient_of(self.output_index)
+    }
+
+    /// Computes the gradient of an arbitrary node with respect to all inputs
+    /// via a reverse-mode backward pass.
+    ///
+    /// Must call `eval()` first so that forward values are populated.
+    /// `output_node` is the index into the node array whose gradient is desired.
+    /// Returns a slice of length `num_inputs`.
+    pub fn gradient_of(&mut self, output_node: usize) -> &[f64] {
+        // 1. Zero the adjoint buffer
+        for a in self.adjoints.iter_mut() {
+            *a = 0.0;
+        }
+
+        // 2. Seed the output node
+        self.adjoints[output_node] = 1.0;
+
+        // 3. Reverse sweep: walk from output_node down to node 0
+        for i in (0..=output_node).rev() {
+            let adj = self.adjoints[i];
+            if adj == 0.0 {
+                continue;
+            }
+
+            match self.nodes[i] {
+                NodeOp::Input(_) | NodeOp::Constant(_) => {
+                    // Leaf nodes: nothing to propagate
+                }
+                NodeOp::Unary { op, src } => {
+                    let local = unary_adjoint(op, self.values[src], self.values[i]);
+                    self.adjoints[src] += adj * local;
+                }
+                NodeOp::Binary { op, lhs, rhs } => {
+                    let (dl, dr) =
+                        binary_adjoint(op, self.values[lhs], self.values[rhs], self.values[i]);
+                    self.adjoints[lhs] += adj * dl;
+                    self.adjoints[rhs] += adj * dr;
+                }
+            }
+        }
+
+        // 4. Gather input adjoints into gradient buffer
+        for (i, &node_idx) in self.input_node_indices.iter().enumerate() {
+            self.gradient_buf[i] = self.adjoints[node_idx];
+        }
+
+        &self.gradient_buf
+    }
+
+    /// Evaluates the graph at the given inputs and computes the gradient
+    /// of the primary output in one call.
+    ///
+    /// Equivalent to calling `eval(inputs)` followed by `gradient()`.
+    /// Returns a slice of length `num_inputs`.
+    pub fn eval_gradient(&mut self, inputs: &[f64]) -> &[f64] {
+        self.eval(inputs);
+        self.gradient()
     }
 }
 
@@ -262,6 +365,58 @@ pub(crate) fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
     }
 }
 
+// =============================================================================
+// Adjoint helpers (local partial derivatives for reverse mode)
+// =============================================================================
+
+/// Local partial derivative of z = op(src) with respect to src.
+///
+/// Given the forward values `src_val` and `z_val = op(src_val)`,
+/// returns dz/d(src).
+pub(crate) fn unary_adjoint(op: UnaryOp, src_val: f64, z_val: f64) -> f64 {
+    match op {
+        UnaryOp::Neg => -1.0,
+        UnaryOp::Sin => src_val.cos(),
+        UnaryOp::Cos => -src_val.sin(),
+        UnaryOp::Tan => {
+            let c = src_val.cos();
+            1.0 / (c * c)
+        }
+        UnaryOp::Exp => z_val,
+        UnaryOp::Ln => 1.0 / src_val,
+        UnaryOp::Sqrt => 0.5 / z_val,
+        UnaryOp::Sinh => src_val.cosh(),
+        UnaryOp::Cosh => src_val.sinh(),
+        UnaryOp::Tanh => 1.0 - z_val * z_val,
+        UnaryOp::Asin => 1.0 / (1.0 - src_val * src_val).sqrt(),
+        UnaryOp::Acos => -1.0 / (1.0 - src_val * src_val).sqrt(),
+        UnaryOp::Atan => 1.0 / (1.0 + src_val * src_val),
+        UnaryOp::Asinh => 1.0 / (src_val * src_val + 1.0).sqrt(),
+        UnaryOp::Acosh => 1.0 / (src_val * src_val - 1.0).sqrt(),
+        UnaryOp::Atanh => 1.0 / (1.0 - src_val * src_val),
+    }
+}
+
+/// Local partial derivatives of z = op(lhs, rhs) with respect to (lhs, rhs).
+///
+/// Given the forward values `lhs_val`, `rhs_val`, and `z_val = op(lhs_val, rhs_val)`,
+/// returns (dz/d(lhs), dz/d(rhs)).
+pub(crate) fn binary_adjoint(op: BinaryOp, lhs_val: f64, rhs_val: f64, z_val: f64) -> (f64, f64) {
+    match op {
+        BinaryOp::Add => (1.0, 1.0),
+        BinaryOp::Sub => (1.0, -1.0),
+        BinaryOp::Mul => (rhs_val, lhs_val),
+        BinaryOp::Div => (1.0 / rhs_val, -lhs_val / (rhs_val * rhs_val)),
+        BinaryOp::Pow => {
+            // dz/d(lhs) = rhs * lhs^(rhs-1)
+            let dlhs = rhs_val * lhs_val.powf(rhs_val - 1.0);
+            // dz/d(rhs) = z * ln(lhs)
+            let drhs = z_val * lhs_val.ln();
+            (dlhs, drhs)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +474,329 @@ mod tests {
         assert_eq!(cg.value(), 7.0); // 2*3 + 1
         cg.eval(&[5.0]);
         assert_eq!(cg.value(), 11.0); // 2*5 + 1
+    }
+
+    // =========================================================================
+    // Adjoint helper unit tests
+    // =========================================================================
+
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_unary_adjoint_neg() {
+        assert_eq!(unary_adjoint(UnaryOp::Neg, 3.0, -3.0), -1.0);
+    }
+
+    #[test]
+    fn test_unary_adjoint_sin() {
+        let x: f64 = 0.7;
+        assert_relative_eq!(unary_adjoint(UnaryOp::Sin, x, x.sin()), x.cos(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_cos() {
+        let x: f64 = 0.7;
+        assert_relative_eq!(unary_adjoint(UnaryOp::Cos, x, x.cos()), -x.sin(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_tan() {
+        let x: f64 = 0.7;
+        let expected = 1.0 / (x.cos() * x.cos());
+        assert_relative_eq!(unary_adjoint(UnaryOp::Tan, x, x.tan()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_exp() {
+        let x: f64 = 1.5;
+        let z = x.exp();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Exp, x, z), z, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_ln() {
+        let x: f64 = 2.0;
+        assert_relative_eq!(unary_adjoint(UnaryOp::Ln, x, x.ln()), 1.0 / x, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_sqrt() {
+        let x: f64 = 4.0;
+        let z = x.sqrt();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Sqrt, x, z), 0.5 / z, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_sinh() {
+        let x: f64 = 1.0;
+        assert_relative_eq!(unary_adjoint(UnaryOp::Sinh, x, x.sinh()), x.cosh(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_cosh() {
+        let x: f64 = 1.0;
+        assert_relative_eq!(unary_adjoint(UnaryOp::Cosh, x, x.cosh()), x.sinh(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_tanh() {
+        let x: f64 = 0.5;
+        let z = x.tanh();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Tanh, x, z), 1.0 - z * z, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_asin() {
+        let x: f64 = 0.5;
+        let expected = 1.0 / (1.0 - x * x).sqrt();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Asin, x, x.asin()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_acos() {
+        let x: f64 = 0.5;
+        let expected = -1.0 / (1.0 - x * x).sqrt();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Acos, x, x.acos()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_atan() {
+        let x: f64 = 1.0;
+        let expected = 1.0 / (1.0 + x * x);
+        assert_relative_eq!(unary_adjoint(UnaryOp::Atan, x, x.atan()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_asinh() {
+        let x: f64 = 1.0;
+        let expected = 1.0 / (x * x + 1.0).sqrt();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Asinh, x, x.asinh()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_acosh() {
+        let x: f64 = 2.0;
+        let expected = 1.0 / (x * x - 1.0).sqrt();
+        assert_relative_eq!(unary_adjoint(UnaryOp::Acosh, x, x.acosh()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_unary_adjoint_atanh() {
+        let x: f64 = 0.5;
+        let expected = 1.0 / (1.0 - x * x);
+        assert_relative_eq!(unary_adjoint(UnaryOp::Atanh, x, x.atanh()), expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_binary_adjoint_add() {
+        assert_eq!(binary_adjoint(BinaryOp::Add, 2.0, 3.0, 5.0), (1.0, 1.0));
+    }
+
+    #[test]
+    fn test_binary_adjoint_sub() {
+        assert_eq!(binary_adjoint(BinaryOp::Sub, 5.0, 3.0, 2.0), (1.0, -1.0));
+    }
+
+    #[test]
+    fn test_binary_adjoint_mul() {
+        assert_eq!(binary_adjoint(BinaryOp::Mul, 2.0, 3.0, 6.0), (3.0, 2.0));
+    }
+
+    #[test]
+    fn test_binary_adjoint_div() {
+        let (dl, dr) = binary_adjoint(BinaryOp::Div, 6.0, 3.0, 2.0);
+        assert_relative_eq!(dl, 1.0 / 3.0, epsilon = 1e-12);
+        assert_relative_eq!(dr, -6.0 / 9.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_binary_adjoint_pow() {
+        // z = 2^3 = 8
+        let (dl, dr) = binary_adjoint(BinaryOp::Pow, 2.0, 3.0, 8.0);
+        // dz/dlhs = 3 * 2^2 = 12
+        assert_relative_eq!(dl, 12.0, epsilon = 1e-12);
+        // dz/drhs = 8 * ln(2)
+        assert_relative_eq!(dr, 8.0 * 2.0_f64.ln(), epsilon = 1e-12);
+    }
+
+    // =========================================================================
+    // Reverse-mode backward pass tests (manual graphs)
+    // =========================================================================
+
+    #[test]
+    fn test_gradient_linear() {
+        // f(x) = 2*x + 1, df/dx = 2
+        let nodes = vec![
+            NodeOp::Input(0),      // node 0: x
+            NodeOp::Constant(2.0), // node 1: 2
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 1,
+                rhs: 0,
+            }, // node 2: 2*x
+            NodeOp::Constant(1.0), // node 3: 1
+            NodeOp::Binary {
+                op: BinaryOp::Add,
+                lhs: 2,
+                rhs: 3,
+            }, // node 4: 2*x + 1
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 1, 4, vec![]);
+        cg.eval(&[3.0]);
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], 2.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_gradient_two_inputs() {
+        // f(x, y) = x * y, df/dx = y, df/dy = x
+        let nodes = vec![
+            NodeOp::Input(0), // node 0: x
+            NodeOp::Input(1), // node 1: y
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            }, // node 2: x*y
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
+        cg.eval(&[3.0, 5.0]);
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12); // df/dx = y
+        assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12); // df/dy = x
+    }
+
+    #[test]
+    fn test_gradient_shared_subexpr() {
+        // f(x) = x * x, df/dx = 2x
+        // Both lhs and rhs of mul point to the same input node
+        let nodes = vec![
+            NodeOp::Input(0), // node 0: x
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 0,
+            }, // node 1: x*x
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 1, 1, vec![]);
+        cg.eval(&[4.0]);
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], 8.0, epsilon = 1e-12); // df/dx = 2*4 = 8
+    }
+
+    #[test]
+    fn test_gradient_constant_function() {
+        // f(x) = 5.0, df/dx = 0
+        let nodes = vec![
+            NodeOp::Input(0),      // node 0: x
+            NodeOp::Constant(5.0), // node 1: 5
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 1, 1, vec![]);
+        cg.eval(&[3.0]);
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_gradient_identity() {
+        // f(x) = x, df/dx = 1
+        let nodes = vec![
+            NodeOp::Input(0), // node 0: x
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 1, 0, vec![]);
+        cg.eval(&[7.0]);
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_gradient_deep_chain() {
+        // f(x) = sin(exp(x)), df/dx = cos(exp(x)) * exp(x)
+        let nodes = vec![
+            NodeOp::Input(0),                               // node 0: x
+            NodeOp::Unary { op: UnaryOp::Exp, src: 0 },    // node 1: exp(x)
+            NodeOp::Unary { op: UnaryOp::Sin, src: 1 },    // node 2: sin(exp(x))
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 1, 2, vec![]);
+        cg.eval(&[0.5]);
+        let e05 = 0.5_f64.exp();
+        let expected = e05.cos() * e05;
+        let grad = cg.gradient();
+        assert_relative_eq!(grad[0], expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_eval_gradient_convenience() {
+        // Same as test_gradient_two_inputs but using eval_gradient
+        let nodes = vec![
+            NodeOp::Input(0), // node 0: x
+            NodeOp::Input(1), // node 1: y
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            },
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
+        let grad = cg.eval_gradient(&[3.0, 5.0]);
+        assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12);
+        assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_gradient_multi_point() {
+        // f(x, y) = x * y at multiple evaluation points
+        let nodes = vec![
+            NodeOp::Input(0),
+            NodeOp::Input(1),
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            },
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
+
+        for &(x, y) in &[(1.0, 2.0), (3.0, 4.0), (-1.0, 5.0), (0.0, 7.0)] {
+            let grad = cg.eval_gradient(&[x, y]);
+            assert_relative_eq!(grad[0], y, epsilon = 1e-12);
+            assert_relative_eq!(grad[1], x, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_gradient_of_intermediate() {
+        // Nodes: x, y, x*y, (x*y)^2
+        // gradient_of node 2 (x*y) should give [y, x]
+        let nodes = vec![
+            NodeOp::Input(0), // node 0: x
+            NodeOp::Input(1), // node 1: y
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            }, // node 2: x*y
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 2,
+                rhs: 2,
+            }, // node 3: (x*y)^2
+        ];
+
+        let mut cg = CompiledGraph::new(nodes, 2, 3, vec![]);
+        cg.eval(&[3.0, 5.0]);
+
+        // gradient of the intermediate node 2 (x*y), not the output
+        let grad = cg.gradient_of(2);
+        assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12); // d(x*y)/dx = y
+        assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12); // d(x*y)/dy = x
     }
 }

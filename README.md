@@ -1,26 +1,28 @@
 # bevy_autodiff
 
-Higher-order automatic differentiation using [Bevy ECS](https://bevyengine.org/) as the computational graph backend.
+Automatic differentiation using [Bevy ECS](https://bevyengine.org/) as the computational graph backend.
 
-`bevy_autodiff` implements Taylor-mode AD, where variables are ECS entities, operations are components, and Taylor coefficients are propagated through the graph to compute derivatives of any order.
+Variables are ECS entities, operations are components, and derivatives are computed by symbolic graph differentiation with chain-rule constant folding. An exploration of what ECS can do for automatic differentiation.
 
-## Key Features
+## Features
 
-- **ECS as computation graph** — entities are variables, components store operations and Taylor coefficients
-- **Taylor-mode AD** — O(n²) complexity for the n-th derivative, vs O(exp(n)) for naive nesting
-- **Univariate decomposition** — directional derivatives avoid multivariate Bell polynomial complexity
-- **Forward and reverse mode** — forward mode for higher-order derivatives, reverse mode for efficient gradients
-- **Incremental order growth** — compute higher derivatives on demand without recomputation
-- **Lazy evaluation** — derivatives computed and cached only when requested
+- **ECS as computation graph** -- entities are variables, components define operations and connectivity
+- **Symbolic graph differentiation** -- `differentiate(output, wrt)` creates new entities representing the derivative graph via the chain rule
+- **Successive differentiation** -- higher-order and mixed partials by repeated differentiation: `d²f/dxdy = differentiate(differentiate(f, x), y)`
+- **Constant folding** -- zero/one terms are eliminated during differentiation to prevent graph bloat
+- **CompiledGraph** -- flattens the ECS graph into a `Vec<NodeOp>` for fast repeated evaluation without ECS overhead
+- **Reverse-mode gradient** -- single backward pass over CompiledGraph computes the full gradient regardless of input count
+- **Forward-mode symbolic partials** -- pre-compiled derivative subgraphs for higher-order derivatives
+- **21 elementary operations** -- 16 unary + 5 binary, all with differentiation rules and reverse-mode adjoints
 
-## Quick Start
-
-Add to your `Cargo.toml`:
+## Installation
 
 ```toml
 [dependencies]
-bevy_autodiff = { git = "https://github.com/VisVivaSpace/bevy_autodiff.git" }
+bevy_autodiff = "0.2"
 ```
+
+## Quick Start
 
 ```rust
 use bevy_autodiff::AutoDiff;
@@ -41,13 +43,20 @@ let f = ad.add(sum, one);
 // Evaluate
 assert_eq!(ad.eval(f), 11.0); // f(2) = 4 + 6 + 1
 
-// Derivatives of any order
-assert_eq!(ad.derivative(f, x, 1), 7.0);  // f'(2) = 2·2 + 3
+// Symbolic differentiation
+let dfdx = ad.differentiate(f, x);
+assert_eq!(ad.eval(dfdx), 7.0);  // f'(2) = 2·2 + 3
+
+// Higher-order via successive differentiation
 assert_eq!(ad.derivative(f, x, 2), 2.0);  // f''(x) = 2
 assert_eq!(ad.derivative(f, x, 3), 0.0);  // f'''(x) = 0
 ```
 
-## Gradients and Hessians
+## Gradients
+
+### Reverse-mode (recommended for many inputs)
+
+`compile_primal` compiles only the function value. `gradient()` computes all partial derivatives in a single backward pass -- O(1) in the number of inputs.
 
 ```rust
 use bevy_autodiff::AutoDiff;
@@ -56,23 +65,46 @@ let mut ad = AutoDiff::new();
 let x = ad.var(1.0);
 let y = ad.var(2.0);
 
-// f(x, y) = x² + xy + y²
+// f(x, y) = x² + x·y + y²
 let x2 = ad.square(x);
 let xy = ad.mul(x, y);
 let y2 = ad.square(y);
 let sum = ad.add(x2, xy);
 let f = ad.add(sum, y2);
 
-// Forward-mode gradient
-let grad = ad.gradient(f);        // [∂f/∂x, ∂f/∂y] = [4.0, 5.0]
+let mut cg = ad.compile_primal(f, &[x, y]);
+cg.eval(&[1.0, 2.0]);
 
-// Reverse-mode gradient (more efficient for many inputs)
-let grad_rev = ad.gradient_reverse(f);
+let val = cg.value();                   // 7.0
+let grad = cg.gradient();               // [4.0, 5.0]
 
-// Hessian matrix (second-order partials)
-let hessian = ad.hessian(f);
-// [[∂²f/∂x², ∂²f/∂x∂y],
-//  [∂²f/∂y∂x, ∂²f/∂y²]] = [[2, 1], [1, 2]]
+// Re-evaluate at new point without recompiling
+cg.eval(&[3.0, -1.0]);
+let grad = cg.gradient();               // [5.0, 1.0]
+```
+
+### Forward-mode (supports higher-order)
+
+`compile_order` pre-compiles symbolic derivative subgraphs. Useful when you need second-order or mixed partial derivatives.
+
+```rust
+use bevy_autodiff::AutoDiff;
+
+let mut ad = AutoDiff::new();
+let x = ad.var(1.0);
+let y = ad.var(2.0);
+
+let xy = ad.mul(x, y);
+let f = ad.add(ad.square(x), xy);
+
+// Compile with all partials up to order 2
+let mut cg = ad.compile_order(f, &[x, y], 2);
+cg.eval(&[1.0, 2.0]);
+
+let dfdx  = cg.partial(&[1, 0]);  // df/dx = 2x + y = 4
+let dfdy  = cg.partial(&[0, 1]);  // df/dy = x = 1
+let d2fdx = cg.partial(&[2, 0]);  // d²f/dx² = 2
+let d2mix = cg.partial(&[1, 1]);  // d²f/dxdy = 1
 ```
 
 ## Supported Operations
@@ -104,7 +136,7 @@ With the `proc-macros` feature, the `#[autodiff]` attribute transforms regular f
 
 ```toml
 [dependencies]
-bevy_autodiff = { git = "https://github.com/VisVivaSpace/bevy_autodiff.git", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.2", features = ["proc-macros"] }
 ```
 
 ```rust
@@ -120,55 +152,76 @@ fn rosenbrock(x: Var, y: Var) -> Var {
 let mut ad = AutoDiff::new();
 let x = ad.var(1.0);
 let y = ad.var(1.0);
-let f = rosenbrock(&mut ad, x, y); // Adds `ad` parameter automatically
+let f = rosenbrock(&mut ad, x, y);
 ```
 
 ## How It Works
 
-### Taylor-Mode AD
+### Symbolic Graph Differentiation
 
-Instead of symbolic differentiation or dual numbers, `bevy_autodiff` propagates truncated Taylor polynomials through the computation graph:
+`differentiate(output, wrt)` walks the computation graph in topological order and applies the chain rule at every node, creating new ECS entities for the derivative subgraph:
 
-1. **Parameterize** along a direction: `p(t) = x + t·d`
-2. **Propagate** Taylor series of `f(p(t))` through each operation using recurrence relations
-3. **Extract** derivatives: `f⁽ⁿ⁾(a) = n! · coefficient[n]`
+1. **Topological sort** from `output` back to inputs
+2. **Base cases**: `d(wrt)/d(wrt) = 1`, `d(other_input)/d(wrt) = 0`, `d(constant)/d(wrt) = 0`
+3. **Chain rule** at each operation node creates derivative entities
+4. **Constant folding** via `smart_add`, `smart_mul`, etc. collapses zero/one terms
 
-Each operation (exp, sin, mul, etc.) has an O(n²) recurrence relation for computing the n-th Taylor coefficient from lower-order coefficients. Mixed partial derivatives are recovered via the polarization identity from directional derivatives.
+For higher-order: `differentiate(differentiate(f, x), y)` gives d²f/dxdy.
+
+### CompiledGraph
+
+`compile()` flattens the ECS graph (and any pre-built derivative subgraphs) into a `Vec<NodeOp>` -- a topologically sorted array of simple operations. A single forward pass evaluates all values.
+
+For first-order gradients, `compile_primal()` + `gradient()` uses reverse-mode: one forward pass caches values, then one backward pass propagates adjoints to compute all partial derivatives simultaneously.
 
 ### ECS Architecture
 
 The Bevy ECS world stores the computation graph:
 - **Entities** represent variables (inputs, constants, intermediate results)
-- **Components** store values (`Value`), operations (`UnaryOp`, `BinaryOp`), connectivity (`UnaryInput`, `BinaryInputs`), and cached Taylor coefficients (`TaylorData`)
-- **Dependency tracking** via bitmasks identifies which inputs affect each variable
+- **Components** store values (`Value`), operations (`UnaryOp`, `BinaryOp`), connectivity (`UnaryInput`, `BinaryInputs`), and dependency bitmasks (`Dependencies`)
 
 ## Examples
 
-Run the included examples:
+See [`examples/README.md`](examples/README.md) for descriptions. Run with:
 
 ```bash
 cargo run --example basic              # Basic derivatives
-cargo run --example gradient           # Forward and reverse gradients
-cargo run --example hessian            # Hessian matrix computation
-cargo run --example rosenbrock         # Gradient descent optimization
+cargo run --example gradient           # Forward-mode gradient
+cargo run --example reverse_gradient   # Reverse-mode gradient + gradient descent
+cargo run --example hessian            # Hessian via successive differentiation
+cargo run --example rosenbrock         # Rosenbrock optimization
 cargo run --example orbital_mechanics  # Gravitational potential derivatives
+cargo run --example stm_propagation    # State transition matrix propagation
 ```
 
 ## Testing
 
-The test suite validates correctness through multiple approaches:
-
 ```bash
-cargo test                           # 351 unit tests + 24 integration tests + doc tests
-cargo test --features proc-macros    # Proc-macro tests
-cargo test --test autodiff_crate_comparison  # Comparison against autodiff crate
+cargo test                                          # Unit + oracle + doc tests
+cargo test --features proc-macros                   # Proc-macro tests
+cargo test --test autodiff_crate_comparison         # Oracle: autodiff crate
+RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test \
+  --features std_autodiff_tests                     # Oracle: Enzyme
 ```
 
-Oracle validation against the independent [autodiff](https://crates.io/crates/autodiff) crate ensures first-order derivative correctness. Higher-order derivatives are validated through mathematical identities (Pythagorean, exp/ln inverse, power laws) and forward/reverse mode agreement.
+The test suite (297 tests) validates correctness through:
 
-## References
+| Test type | What it validates | Count |
+|-----------|-------------------|-------|
+| Unit tests | Graph construction, all 21 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass | 261 |
+| Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
+| Doc-tests | Code examples in documentation | 14 |
+| Cross-validation | Reverse-mode gradient matches forward-mode symbolic partials | 8 (within unit) |
 
-- Griewank, A. & Walther, A. (2008). *Evaluating Derivatives: Principles and Techniques of Algorithmic Differentiation*, 2nd ed. SIAM. Tables 13.1–13.2 for Taylor coefficient recurrences.
+## Documentation
+
+- [Architecture](docs/architecture.md) -- ECS graph representation, compilation pipeline, differentiation approaches
+- [Numerical Precision](docs/numerical_precision.md) -- precision tiers, tolerance justification, known considerations
+- [API Reference](https://docs.rs/bevy_autodiff) -- rustdoc on docs.rs
+
+## Development
+
+This project was co-developed with [Claude](https://claude.ai), an AI assistant by Anthropic.
 
 ## License
 
