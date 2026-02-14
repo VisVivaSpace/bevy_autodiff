@@ -1,7 +1,5 @@
 //! GPU context for compute shader dispatch.
 
-use wgpu;
-
 use super::error::GpuError;
 
 /// Holds the wgpu device, queue, and compute pipeline.

@@ -2,8 +2,6 @@
 
 use std::collections::HashMap;
 
-use bytemuck;
-use wgpu;
 use wgpu::util::DeviceExt;
 
 use super::context::GpuContext;

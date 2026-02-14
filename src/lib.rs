@@ -99,6 +99,7 @@ pub use bevy_autodiff_macros::autodiff;
 
 // GPU batch evaluation via wgpu
 #[cfg(feature = "wgpu")]
+#[cfg_attr(docsrs, doc(cfg(feature = "wgpu")))]
 pub mod gpu;
 
 // Re-export graph traversal helpers

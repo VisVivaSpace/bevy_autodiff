@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Errors that can occur during GPU operations.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum GpuError {
     /// No suitable GPU adapter found.
     AdapterRequest(wgpu::RequestAdapterError),
