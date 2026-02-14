@@ -18,11 +18,15 @@ exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
 bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
+wgpu = { version = "27", optional = true }
+bytemuck = { version = "1.25", features = ["derive"], optional = true }
+pollster = { version = "0.4", optional = true }
 
 [features]
 default = []
 std_autodiff_tests = []
 proc-macros = ["bevy_autodiff-macros"]
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
 
 [dev-dependencies]
 approx = "0.5"
@@ -65,3 +69,8 @@ path = "examples/reverse_gradient.rs"
 [[example]]
 name = "stm_propagation"
 path = "examples/stm_propagation.rs"
+
+[[example]]
+name = "gpu_batch"
+path = "examples/gpu_batch.rs"
+required-features = ["wgpu"]

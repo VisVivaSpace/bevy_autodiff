@@ -77,3 +77,13 @@ Requires the `rkf78` dev-dependency.
 ```bash
 cargo run --example stm_propagation
 ```
+
+### gpu_batch
+
+GPU batch evaluation: compiles `f(x, y) = sin(x·y) + exp(x)` with first-order partials, then evaluates at 1 million input points in parallel on the GPU via wgpu. Demonstrates the full GPU workflow: `GpuContext::new()`, `prepare()`, `eval_batch()`, and reading back values and partial derivatives.
+
+Requires the `wgpu` feature.
+
+```bash
+cargo run --example gpu_batch --features wgpu
+```

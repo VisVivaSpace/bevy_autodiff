@@ -14,6 +14,7 @@ Variables are ECS entities, operations are components, and derivatives are compu
 - **Reverse-mode gradient** -- single backward pass over CompiledGraph computes the full gradient regardless of input count
 - **Forward-mode symbolic partials** -- pre-compiled derivative subgraphs for higher-order derivatives
 - **21 elementary operations** -- 16 unary + 5 binary, all with differentiation rules and reverse-mode adjoints
+- **GPU batch evaluation** -- evaluate compiled graphs at millions of input points in parallel via wgpu (Metal, Vulkan, DX12)
 
 ## Installation
 
@@ -155,6 +156,41 @@ let y = ad.var(1.0);
 let f = rosenbrock(&mut ad, x, y);
 ```
 
+## GPU Batch Evaluation
+
+Enable the `wgpu` feature to evaluate compiled graphs on the GPU at millions of input points in parallel. Useful for Monte Carlo simulation, batch trajectory optimization, or any workload that evaluates the same function at many different inputs.
+
+```toml
+[dependencies]
+bevy_autodiff = { version = "0.3", features = ["wgpu"] }
+```
+
+```rust
+use bevy_autodiff::AutoDiff;
+use bevy_autodiff::gpu::GpuContext;
+
+let gpu = GpuContext::new().unwrap();
+
+let mut ad = AutoDiff::new();
+let x = ad.var(0.0);
+let y = ad.var(0.0);
+let xy = ad.mul(x, y);
+let f = ad.add(ad.sin(xy), ad.exp(x));
+
+let graph = ad.compile_order(f, &[x, y], 1);
+let gpu_graph = gpu.prepare(&graph).unwrap();
+
+// Evaluate at 1M points in parallel
+let x_samples: Vec<f32> = (0..1_000_000).map(|i| i as f32 * 1e-6).collect();
+let y_samples: Vec<f32> = (0..1_000_000).map(|i| i as f32 * 1e-6).collect();
+let results = gpu_graph.eval_batch(&gpu, &[&x_samples, &y_samples]).unwrap();
+
+let values = results.values();          // f(x,y) for each sample
+let dfdx = results.partials(&[1, 0]);   // df/dx for each sample
+```
+
+The GPU path compiles the graph to f32 (the CPU path uses f64). A WGSL interpreter kernel dispatches one GPU thread per sample with zero warp divergence.
+
 ## How It Works
 
 ### Symbolic Graph Differentiation
@@ -192,6 +228,7 @@ cargo run --example hessian            # Hessian via successive differentiation
 cargo run --example rosenbrock         # Rosenbrock optimization
 cargo run --example orbital_mechanics  # Gravitational potential derivatives
 cargo run --example stm_propagation    # State transition matrix propagation
+cargo run --example gpu_batch --features wgpu  # GPU batch evaluation
 ```
 
 ## Testing
@@ -199,17 +236,21 @@ cargo run --example stm_propagation    # State transition matrix propagation
 ```bash
 cargo test                                          # Unit + oracle + doc tests
 cargo test --features proc-macros                   # Proc-macro tests
+cargo test --features wgpu                          # GPU tests (requires GPU)
 cargo test --test autodiff_crate_comparison         # Oracle: autodiff crate
+cargo test --test gpu_cpu_comparison --features wgpu # Oracle: GPU vs CPU
 RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test \
   --features std_autodiff_tests                     # Oracle: Enzyme
 ```
 
-The test suite (297 tests) validates correctness through:
+The test suite (339 tests with `--features wgpu`) validates correctness through:
 
 | Test type | What it validates | Count |
 |-----------|-------------------|-------|
 | Unit tests | Graph construction, all 21 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass | 261 |
+| GPU unit tests | NodeOp conversion, GPU dispatch, buffer readback, error paths | 15 |
 | Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
+| Oracle (GPU vs CPU) | GPU f32 results against CPU f64 for all ops, compositions, partials, batch sizes | 27 |
 | Doc-tests | Code examples in documentation | 14 |
 | Cross-validation | Reverse-mode gradient matches forward-mode symbolic partials | 8 (within unit) |
 

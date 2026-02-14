@@ -97,6 +97,10 @@ pub use debug::{count_operations, to_dot, validate_graph};
 #[cfg(feature = "proc-macros")]
 pub use bevy_autodiff_macros::autodiff;
 
+// GPU batch evaluation via wgpu
+#[cfg(feature = "wgpu")]
+pub mod gpu;
+
 // Re-export graph traversal helpers
 pub use graph::{
     collect_all_entities, find_all_inputs, get_binary_inputs, get_inputs, get_operation_name,

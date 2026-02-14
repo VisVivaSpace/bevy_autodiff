@@ -67,6 +67,14 @@ RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test --features std_autodiff_tests
 
 Compares against Rust's experimental `std::autodiff` powered by LLVM/Enzyme. Requires the Enzyme toolchain.
 
+### GPU Tests
+
+```bash
+cargo test --features wgpu
+```
+
+Tests GPU batch evaluation: NodeOp conversion, dispatch, readback, and GPU-vs-CPU oracle comparison for all 21 operations, compositions, partials, and batch sizes up to 100K. Requires a GPU.
+
 ### Test Strategy
 
 | Test Type | What It Validates | Requirements |
@@ -75,6 +83,7 @@ Compares against Rust's experimental `std::autodiff` powered by LLVM/Enzyme. Req
 | autodiff crate | First derivatives against independent AD | None |
 | std::autodiff | First derivatives against LLVM/Enzyme | Enzyme toolchain |
 | Proc-macro | Macro expansion and ergonomic API | `proc-macros` feature |
+| GPU tests | GPU batch eval against CPU for all ops | `wgpu` feature + GPU |
 
 ## Architecture
 
@@ -115,6 +124,13 @@ src/
 ├── graph/              # Graph utilities
 │   ├── topology.rs     # topological_order, topological_order_multi
 │   └── traverse.rs     # Graph traversal utilities
+├── gpu/                # GPU batch evaluation (feature = "wgpu")
+│   ├── mod.rs          # Module root, re-exports
+│   ├── context.rs      # GpuContext: device, queue, pipeline
+│   ├── graph.rs        # GpuGraph, GpuResults, dispatch/readback
+│   ├── error.rs        # GpuError enum
+│   ├── types.rs        # GpuNodeOp, NodeOp→GPU conversion
+│   └── shader.wgsl     # WGSL interpreter compute kernel
 ├── debug.rs            # Graph visualization (DOT format)
 ├── error.rs            # Error types
 ├── macros.rs           # expr! macro
@@ -138,10 +154,12 @@ src/
 
 ```toml
 [dependencies]
-bevy_ecs = "0.15"
-bevy_entity_ptr = "0.1.0"
-thiserror = "1.0"
+bevy_ecs = "0.18"
+bevy_entity_ptr = "0.5"
 bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
+wgpu = { version = "27", optional = true }
+bytemuck = { version = "1.25", features = ["derive"], optional = true }
+pollster = { version = "0.4", optional = true }
 
 [dev-dependencies]
 approx = "0.5"    # Floating point comparisons
@@ -151,4 +169,5 @@ criterion = "0.5" # Benchmarks
 [features]
 proc-macros = ["bevy_autodiff-macros"]   # Enable #[autodiff] and expr! macros
 std_autodiff_tests = []                  # Enable std::autodiff comparison tests (requires Enzyme)
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]  # GPU batch evaluation
 ```
