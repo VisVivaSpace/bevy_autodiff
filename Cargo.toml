@@ -10,7 +10,7 @@ repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
 homepage = "https://github.com/VisVivaSpace/bevy_autodiff"
 documentation = "https://docs.rs/bevy_autodiff"
 readme = "README.md"
-keywords = ["autodiff", "automatic-differentiation", "bevy", "ecs", "derivatives"]
+keywords = ["autodiff", "differentiation", "bevy", "ecs", "derivatives"]
 categories = ["science", "mathematics"]
 exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 
