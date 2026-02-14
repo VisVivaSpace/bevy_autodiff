@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-14
+
+### Added
+
+- GPU batch evaluation via wgpu (`wgpu` feature flag):
+  - `GpuContext` for device acquisition (auto-select or from existing wgpu device)
+  - `GpuGraph` for prepared per-graph GPU buffers, reusable across dispatches
+  - `GpuResults` with `.values()` and `.partials()` for reading back results
+  - Interpreter-style WGSL compute shader — zero warp divergence
+  - SoA memory layout for coalesced GPU access
+  - All 21 operations supported (16 unary + 5 binary)
+  - Forward-mode symbolic partials on GPU
+  - f32 precision on GPU (CPU path remains f64)
+- `GpuError` error type with `#[non_exhaustive]` for future extensibility
+- `gpu_batch` example demonstrating 1M-sample parallel evaluation
+- GPU oracle test suite: 27 tests comparing GPU f32 against CPU f64
+- 15 GPU unit tests covering dispatch, error paths, and graph reuse
+- `docs.rs` feature badge for GPU module via `doc(cfg)` annotation
+
+### Changed
+
+- `CompiledGraph` gained `pub(crate)` accessors (`nodes()`, `output_index()`, `partial_outputs()`) gated behind `#[cfg(feature = "wgpu")]`
+
 ## [0.3.0] - 2026-02-13
 
 ### Changed
@@ -58,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Oracle validation against the `autodiff` crate
 - Operator overloading via `with_context`
 
+[0.4.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/VisVivaSpace/bevy_autodiff/releases/tag/v0.1.0

@@ -20,7 +20,7 @@ Variables are ECS entities, operations are components, and derivatives are compu
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.3"
+bevy_autodiff = "0.4"
 ```
 
 ## Quick Start
@@ -137,7 +137,7 @@ With the `proc-macros` feature, the `#[autodiff]` attribute transforms regular f
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.3", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.4", features = ["proc-macros"] }
 ```
 
 ```rust
@@ -162,7 +162,7 @@ Enable the `wgpu` feature to evaluate compiled graphs on the GPU at millions of 
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.3", features = ["wgpu"] }
+bevy_autodiff = { version = "0.4", features = ["wgpu"] }
 ```
 
 ```rust
