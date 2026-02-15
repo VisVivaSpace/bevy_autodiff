@@ -339,6 +339,22 @@ pub fn powi(x: Var, n: i32) -> Var { with_current_context(|ctx| ctx.powi(x, n)) 
 /// Computes x^p within the current AutoDiff context (float exponent).
 pub fn powf(x: Var, p: f64) -> Var { with_current_context(|ctx| ctx.powf(x, p)) }
 
+/// Computes base^exp using logarithmic differentiation (both Var).
+/// See [`AutoDiff::pow_log`](crate::AutoDiff::pow_log) for details.
+pub fn pow_log(base: Var, exp: Var) -> Var { with_current_context(|ctx| ctx.pow_log(base, exp)) }
+
+/// Computes x^n using logarithmic differentiation (integer exponent).
+/// See [`AutoDiff::powi_log`](crate::AutoDiff::powi_log) for details.
+pub fn powi_log(x: Var, n: i32) -> Var { with_current_context(|ctx| ctx.powi_log(x, n)) }
+
+/// Computes x^p using logarithmic differentiation (float exponent).
+/// See [`AutoDiff::powf_log`](crate::AutoDiff::powf_log) for details.
+pub fn powf_log(x: Var, p: f64) -> Var { with_current_context(|ctx| ctx.powf_log(x, p)) }
+
+/// Computes a/b using logarithmic differentiation.
+/// See [`AutoDiff::div_log`](crate::AutoDiff::div_log) for details.
+pub fn div_log(a: Var, b: Var) -> Var { with_current_context(|ctx| ctx.div_log(a, b)) }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,5 +576,31 @@ mod tests {
         let result = with_context(&mut ad, || sin(x) + cos(x) + exp(-x));
         let expected = 1.0_f64.sin() + 1.0_f64.cos() + (-1.0_f64).exp();
         assert!((ad.eval(result).unwrap() - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_free_pow_log_powi_log_powf_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
+
+        let a = with_context(&mut ad, || pow_log(x, y));
+        assert!((ad.eval(a).unwrap() - 8.0).abs() < 1e-10); // 2^3 = 8
+
+        let b = with_context(&mut ad, || powi_log(x, 4));
+        assert!((ad.eval(b).unwrap() - 16.0).abs() < 1e-10); // 2^4 = 16
+
+        let c = with_context(&mut ad, || powf_log(x, 0.5));
+        assert!((ad.eval(c).unwrap() - std::f64::consts::SQRT_2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_free_div_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(6.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+
+        let result = with_context(&mut ad, || div_log(x, y));
+        assert_eq!(ad.eval(result).unwrap(), 3.0);
     }
 }

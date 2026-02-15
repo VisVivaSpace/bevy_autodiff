@@ -65,9 +65,18 @@ use syn::{
 ///
 /// - Binary: `+`, `-`, `*`, `/`
 /// - Unary: `-` (negation)
-/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`, `powi`, `powf`, `square`
+/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`, `powi`, `powf`, `square`, `pow_log`, `powi_log`, `powf_log`, `div_log`
 /// - Method syntax: `x.sin()`, `x.cos()`, etc. — transformed to `ad.sin(x)`, `ad.cos(x)`, etc.
 /// - Literals: float and integer literals become `ad.constant(value)`
+///
+/// # `stable_derivatives` Attribute
+///
+/// Use `#[autodiff(stable_derivatives)]` to automatically route `pow` → `pow_log`,
+/// `powi` → `powi_log`, `powf` → `powf_log`, and `/` → `div_log`. This produces
+/// derivative graphs that avoid catastrophic cancellation in f32 for second-order
+/// and higher derivatives.
+///
+/// **Requirement:** all bases must be positive and all divisors nonzero.
 ///
 /// # Limitations
 ///
@@ -75,8 +84,12 @@ use syn::{
 /// - Variables bound with `let` that are floats should be used directly, not as Var
 /// - The function must have `Var` parameters and return `Var`
 #[proc_macro_attribute]
-pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn autodiff(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(item as ItemFn);
+
+    // Parse attribute for stable_derivatives flag
+    let attr_str = attr.to_string();
+    let stable_derivatives = attr_str.contains("stable_derivatives");
 
     // Add `ad: &mut AutoDiff` as first parameter
     let ad_param: FnArg = parse_quote!(ad: &mut AutoDiff);
@@ -84,6 +97,7 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Transform the function body
     let mut transformer = ExprTransformer::new();
+    transformer.stable_derivatives = stable_derivatives;
     transformer.visit_item_fn_mut(&mut func);
 
     TokenStream::from(func.into_token_stream())
@@ -95,6 +109,8 @@ struct ExprTransformer {
     local_float_vars: Vec<String>,
     /// Counter for generating unique temporary variable names
     temp_counter: usize,
+    /// When true, routes pow → pow_log, div → div_log for f32-stable derivatives
+    stable_derivatives: bool,
 }
 
 impl ExprTransformer {
@@ -102,6 +118,7 @@ impl ExprTransformer {
         Self {
             local_float_vars: Vec::new(),
             temp_counter: 0,
+            stable_derivatives: false,
         }
     }
 
@@ -121,6 +138,7 @@ impl ExprTransformer {
             | "asin" | "acos" | "atan"
             | "asinh" | "acosh" | "atanh"
             | "pow" | "powi" | "powf" | "square"
+            | "pow_log" | "powi_log" | "powf_log" | "div_log"
         )
     }
 
@@ -150,7 +168,9 @@ impl ExprTransformer {
             syn::BinOp::Add(_) => "add",
             syn::BinOp::Sub(_) => "sub",
             syn::BinOp::Mul(_) => "mul",
-            syn::BinOp::Div(_) => "div",
+            syn::BinOp::Div(_) => {
+                if self.stable_derivatives { "div_log" } else { "div" }
+            }
             _ => return Expr::Binary(expr.clone()), // Don't transform other operators
         };
 
@@ -207,41 +227,76 @@ impl ExprTransformer {
             }
         };
 
-        // Handle pow specially (two arguments)
-        if func_name == "pow" && expr.args.len() == 2 {
+        // Handle pow / pow_log (two Var arguments)
+        if (func_name == "pow" || func_name == "pow_log") && expr.args.len() == 2 {
             let base = self.transform_expr(&expr.args[0]);
             let exp = self.transform_expr(&expr.args[1]);
             let base_temp = self.next_temp();
             let exp_temp = self.next_temp();
 
+            let method_name = if func_name == "pow_log" || self.stable_derivatives {
+                "pow_log"
+            } else {
+                "pow"
+            };
+            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+
             return parse_quote!({
                 let #base_temp = #base;
                 let #exp_temp = #exp;
-                ad.pow(#base_temp, #exp_temp)
+                ad.#method(#base_temp, #exp_temp)
             });
         }
 
-        // Handle powi(base, i32) — second arg is raw integer, not transformed
-        if func_name == "powi" && expr.args.len() == 2 {
+        // Handle powi / powi_log (Var + raw i32)
+        if (func_name == "powi" || func_name == "powi_log") && expr.args.len() == 2 {
             let base = self.transform_expr(&expr.args[0]);
             let base_temp = self.next_temp();
             let exp_arg = &expr.args[1]; // raw i32, not transformed
 
+            let method_name = if func_name == "powi_log" || self.stable_derivatives {
+                "powi_log"
+            } else {
+                "powi"
+            };
+            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+
             return parse_quote!({
                 let #base_temp = #base;
-                ad.powi(#base_temp, #exp_arg)
+                ad.#method(#base_temp, #exp_arg)
             });
         }
 
-        // Handle powf(base, f64) — second arg is raw float, not transformed
-        if func_name == "powf" && expr.args.len() == 2 {
+        // Handle powf / powf_log (Var + raw f64)
+        if (func_name == "powf" || func_name == "powf_log") && expr.args.len() == 2 {
             let base = self.transform_expr(&expr.args[0]);
             let base_temp = self.next_temp();
             let exp_arg = &expr.args[1]; // raw f64, not transformed
 
+            let method_name = if func_name == "powf_log" || self.stable_derivatives {
+                "powf_log"
+            } else {
+                "powf"
+            };
+            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+
             return parse_quote!({
                 let #base_temp = #base;
-                ad.powf(#base_temp, #exp_arg)
+                ad.#method(#base_temp, #exp_arg)
+            });
+        }
+
+        // Handle div_log (two Var arguments)
+        if func_name == "div_log" && expr.args.len() == 2 {
+            let lhs = self.transform_expr(&expr.args[0]);
+            let rhs = self.transform_expr(&expr.args[1]);
+            let lhs_temp = self.next_temp();
+            let rhs_temp = self.next_temp();
+
+            return parse_quote!({
+                let #lhs_temp = #lhs;
+                let #rhs_temp = #rhs;
+                ad.div_log(#lhs_temp, #rhs_temp)
             });
         }
 
@@ -278,21 +333,33 @@ impl ExprTransformer {
         let recv_temp = self.next_temp();
         let method = syn::Ident::new(&method_name, proc_macro2::Span::call_site());
 
-        // powi: x.powi(3) → ad.powi(x, 3) — second arg is raw integer
-        if method_name == "powi" && expr.args.len() == 1 {
+        // powi / powi_log: x.powi(3) → ad.powi(x, 3) — second arg is raw integer
+        if (method_name == "powi" || method_name == "powi_log") && expr.args.len() == 1 {
             let exp_arg = &expr.args[0]; // raw i32, not transformed
+            let target_method = if method_name == "powi_log" || self.stable_derivatives {
+                "powi_log"
+            } else {
+                "powi"
+            };
+            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
             return parse_quote!({
                 let #recv_temp = #receiver;
-                ad.powi(#recv_temp, #exp_arg)
+                ad.#target(#recv_temp, #exp_arg)
             });
         }
 
-        // powf: x.powf(2.5) → ad.powf(x, 2.5) — second arg is raw f64
-        if method_name == "powf" && expr.args.len() == 1 {
+        // powf / powf_log: x.powf(2.5) → ad.powf(x, 2.5) — second arg is raw f64
+        if (method_name == "powf" || method_name == "powf_log") && expr.args.len() == 1 {
             let exp_arg = &expr.args[0]; // raw f64, not transformed
+            let target_method = if method_name == "powf_log" || self.stable_derivatives {
+                "powf_log"
+            } else {
+                "powf"
+            };
+            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
             return parse_quote!({
                 let #recv_temp = #receiver;
-                ad.powf(#recv_temp, #exp_arg)
+                ad.#target(#recv_temp, #exp_arg)
             });
         }
 

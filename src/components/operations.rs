@@ -77,6 +77,24 @@ pub enum BinaryOp {
     Div,
     /// Power: x^y
     Pow,
+    /// Power with logarithmic differentiation: x^y
+    ///
+    /// Primal evaluation is identical to [`Pow`](BinaryOp::Pow), but symbolic
+    /// differentiation uses the logarithmic form `d(a^b)/da = a^b · b · (da/a)`
+    /// instead of the standard power rule `b · a^(b-1) · da`. This avoids
+    /// catastrophic cancellation in f32 for second-order and higher derivatives.
+    ///
+    /// **Requirement:** base must be positive (`a > 0`). Produces NaN otherwise.
+    PowLog,
+    /// Division with logarithmic differentiation: x / y
+    ///
+    /// Primal evaluation is identical to [`Div`](BinaryOp::Div), but symbolic
+    /// differentiation uses the logarithmic form `d(a/b) = (a/b) · (da/a - db/b)`
+    /// instead of the quotient rule `(da·b - a·db) / b²`. This avoids
+    /// catastrophic cancellation in f32 for second-order and higher derivatives.
+    ///
+    /// **Requirement:** both operands must be nonzero. Produces NaN otherwise.
+    DivLog,
 }
 
 impl BinaryOp {
@@ -88,6 +106,8 @@ impl BinaryOp {
             Self::Mul => "mul",
             Self::Div => "div",
             Self::Pow => "pow",
+            Self::PowLog => "pow_log",
+            Self::DivLog => "div_log",
         }
     }
 
@@ -97,8 +117,8 @@ impl BinaryOp {
             Self::Add => "+",
             Self::Sub => "-",
             Self::Mul => "*",
-            Self::Div => "/",
-            Self::Pow => "^",
+            Self::Div | Self::DivLog => "/",
+            Self::Pow | Self::PowLog => "^",
         }
     }
 }
@@ -146,7 +166,7 @@ impl UnaryInput {
 }
 
 /// Component storing the input entities for a binary operation.
-/// The order matters for non-commutative operations (Sub, Div, Pow).
+/// The order matters for non-commutative operations (Sub, Div, Pow, DivLog, PowLog).
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BinaryInputs {
     /// Left operand (first argument)

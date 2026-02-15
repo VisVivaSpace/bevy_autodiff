@@ -119,8 +119,8 @@ pub use optimize::{
 
 // Re-export operator overloading context and free functions
 pub use ops::{
-    acos, acosh, asin, asinh, atan, atanh, cos, cosh, exp, ln, pow, powf, powi, sin, sinh,
-    square, sqrt, tan, tanh, with_context,
+    acos, acosh, asin, asinh, atan, atanh, cos, cosh, div_log, exp, ln, pow, pow_log, powf,
+    powf_log, powi, powi_log, sin, sinh, square, sqrt, tan, tanh, with_context,
 };
 
 // Compile-time assertions that all components are Send + Sync

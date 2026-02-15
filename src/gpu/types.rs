@@ -61,8 +61,8 @@ pub(crate) fn binary_op_code(op: BinaryOp) -> u32 {
         BinaryOp::Add => 0,
         BinaryOp::Sub => 1,
         BinaryOp::Mul => 2,
-        BinaryOp::Div => 3,
-        BinaryOp::Pow => 4,
+        BinaryOp::Div | BinaryOp::DivLog => 3,
+        BinaryOp::Pow | BinaryOp::PowLog => 4,
     }
 }
 

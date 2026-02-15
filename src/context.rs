@@ -207,6 +207,51 @@ impl AutoDiff {
         self.binary_op(BinaryOp::Pow, base, exponent, |x, y| x.powf(y))
     }
 
+    /// Creates a new variable representing a^b using logarithmic differentiation.
+    ///
+    /// Primal evaluation is identical to [`pow`](Self::pow). The difference is in
+    /// how symbolic derivatives are computed: this uses `d(a^b)/da = a^b · b · (da/a)`
+    /// instead of `b · a^(b-1) · da`. The logarithmic form avoids catastrophic
+    /// cancellation in f32 for second-order and higher derivatives, making it
+    /// suitable for GPU evaluation via [`to_wgsl()`](crate::compiled::CompiledGraph::to_wgsl).
+    ///
+    /// **Requirement:** `base > 0`. Produces NaN if the base is zero or negative.
+    pub fn pow_log(&mut self, base: Var, exponent: Var) -> Var {
+        self.binary_op(BinaryOp::PowLog, base, exponent, |x, y| x.powf(y))
+    }
+
+    /// Creates a new variable representing a/b using logarithmic differentiation.
+    ///
+    /// Primal evaluation is identical to [`div`](Self::div). The difference is in
+    /// how symbolic derivatives are computed: this uses `d(a/b) = (a/b) · (da/a - db/b)`
+    /// instead of the quotient rule `(da·b - a·db) / b²`. The logarithmic form avoids
+    /// catastrophic cancellation in f32 for second-order and higher derivatives.
+    ///
+    /// **Requirement:** both `a` and `b` must be nonzero. Produces NaN otherwise.
+    pub fn div_log(&mut self, a: Var, b: Var) -> Var {
+        self.binary_op(BinaryOp::DivLog, a, b, |x, y| x / y)
+    }
+
+    /// Creates a new variable representing x^n (integer power) with logarithmic differentiation.
+    ///
+    /// See [`pow_log`](Self::pow_log) for details on when to use this.
+    ///
+    /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
+    pub fn powi_log(&mut self, x: Var, n: i32) -> Var {
+        let n_const = self.constant(n as f64);
+        self.pow_log(x, n_const)
+    }
+
+    /// Creates a new variable representing x^p (float power) with logarithmic differentiation.
+    ///
+    /// See [`pow_log`](Self::pow_log) for details on when to use this.
+    ///
+    /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
+    pub fn powf_log(&mut self, x: Var, p: f64) -> Var {
+        let p_const = self.constant(p);
+        self.pow_log(x, p_const)
+    }
+
     /// Internal helper for creating binary operations.
     fn binary_op(&mut self, op: BinaryOp, a: Var, b: Var, f: fn(f64, f64) -> f64) -> Var {
         // Get values
@@ -727,6 +772,62 @@ impl AutoDiff {
                     let da_over_a = self.div(da, a);
                     let term2 = self.mul(b, da_over_a);
                     let inner = self.add(term1, term2);
+                    self.mul(z, inner)
+                }
+            }
+            BinaryOp::PowLog => {
+                // Logarithmic differentiation: d(a^b) = a^b * (db*ln(a) + b*da/a)
+                // The key difference from Pow: when b is constant, uses z*b*(da/a)
+                // instead of b*a^(b-1)*da, avoiding catastrophic cancellation in f32.
+                let da_is_zero = self.is_const_value(da, 0.0);
+                let db_is_zero = self.is_const_value(db, 0.0);
+
+                if da_is_zero && db_is_zero {
+                    self.constant(0.0)
+                } else if db_is_zero {
+                    // d(a^b) = z * b * (da / a)  — logarithmic form
+                    if self.is_const_value(b, 0.0) {
+                        return self.constant(0.0);
+                    }
+                    let da_over_a = self.div(da, a);
+                    let b_da_over_a = self.smart_mul(b, da_over_a);
+                    self.smart_mul(z, b_da_over_a)
+                } else if da_is_zero {
+                    // d(a^b) = z * ln(a) * db  (same as Pow, already stable)
+                    let ln_a = self.ln(a);
+                    let z_ln_a = self.mul(z, ln_a);
+                    self.smart_mul(z_ln_a, db)
+                } else {
+                    // d(a^b) = z * (db*ln(a) + b*da/a)  (same as Pow general)
+                    let ln_a = self.ln(a);
+                    let term1 = self.mul(db, ln_a);
+                    let da_over_a = self.div(da, a);
+                    let term2 = self.mul(b, da_over_a);
+                    let inner = self.add(term1, term2);
+                    self.mul(z, inner)
+                }
+            }
+            BinaryOp::DivLog => {
+                // Logarithmic differentiation: d(a/b) = (a/b) * (da/a - db/b)
+                let da_is_zero = self.is_const_value(da, 0.0);
+                let db_is_zero = self.is_const_value(db, 0.0);
+
+                if da_is_zero && db_is_zero {
+                    self.constant(0.0)
+                } else if db_is_zero {
+                    // d(a/b) = z * (da / a)  (b constant)
+                    let da_over_a = self.div(da, a);
+                    self.smart_mul(z, da_over_a)
+                } else if da_is_zero {
+                    // d(a/b) = z * (- db / b)  (a constant)
+                    let db_over_b = self.div(db, b);
+                    let neg_db_over_b = self.neg(db_over_b);
+                    self.smart_mul(z, neg_db_over_b)
+                } else {
+                    // d(a/b) = z * (da/a - db/b)
+                    let da_over_a = self.div(da, a);
+                    let db_over_b = self.div(db, b);
+                    let inner = self.sub(da_over_a, db_over_b);
                     self.mul(z, inner)
                 }
             }

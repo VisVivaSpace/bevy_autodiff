@@ -386,8 +386,8 @@ pub(crate) fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
         BinaryOp::Add => x + y,
         BinaryOp::Sub => x - y,
         BinaryOp::Mul => x * y,
-        BinaryOp::Div => x / y,
-        BinaryOp::Pow => x.powf(y),
+        BinaryOp::Div | BinaryOp::DivLog => x / y,
+        BinaryOp::Pow | BinaryOp::PowLog => x.powf(y),
     }
 }
 
@@ -439,6 +439,17 @@ pub(crate) fn binary_adjoint(op: BinaryOp, lhs_val: f64, rhs_val: f64, z_val: f6
             // dz/d(rhs) = z * ln(lhs)
             let drhs = z_val * lhs_val.ln();
             (dlhs, drhs)
+        }
+        BinaryOp::PowLog => {
+            // Logarithmic form: dz/d(lhs) = z * rhs / lhs
+            let dlhs = z_val * rhs_val / lhs_val;
+            // dz/d(rhs) = z * ln(lhs)
+            let drhs = z_val * lhs_val.ln();
+            (dlhs, drhs)
+        }
+        BinaryOp::DivLog => {
+            // Logarithmic form: same as standard Div for reverse mode
+            (1.0 / rhs_val, -lhs_val / (rhs_val * rhs_val))
         }
     }
 }

@@ -292,12 +292,22 @@ macro_rules! expr {
         $crate::expr!(@pow_munch $ad, {}, $($args)+)
     };
 
+    // pow_log(base, exp) — logarithmic differentiation variant of pow
+    (@atom $ad:ident, pow_log ($($args:tt)+)) => {
+        $crate::expr!(@pow_log_munch $ad, {}, $($args)+)
+    };
+
+    // div_log(a, b) — logarithmic differentiation variant of division
+    (@atom $ad:ident, div_log ($($args:tt)+)) => {
+        $crate::expr!(@div_log_munch $ad, {}, $($args)+)
+    };
+
     // Unsupported function name — helpful error message
     (@atom $ad:ident, $unknown:ident ($($arg:tt)*)) => {
         compile_error!(concat!(
             "unsupported function `", stringify!($unknown), "` in expr! macro. ",
             "Supported: sin, cos, tan, exp, ln, sqrt, sinh, cosh, tanh, ",
-            "asin, acos, atan, asinh, acosh, atanh, pow, square"
+            "asin, acos, atan, asinh, acosh, atanh, pow, pow_log, div_log, square"
         ))
     };
 
@@ -330,6 +340,42 @@ macro_rules! expr {
     // Any other token in pow args: accumulate and continue
     (@pow_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
         $crate::expr!(@pow_munch $ad, {$($acc)* $tok}, $($rest)*)
+    };
+
+    // ============================================================
+    // POW_LOG COMMA-MUNCH: Find comma separator in pow_log(base, exp)
+    // ============================================================
+
+    (@pow_log_munch $ad:ident, {$($base:tt)+}, , $($exp:tt)+) => {{
+        let base = $crate::expr!(@add_munch $ad, {}, $($base)+ @end);
+        let exp_val = $crate::expr!(@add_munch $ad, {}, $($exp)+ @end);
+        $ad.pow_log(base, exp_val)
+    }};
+
+    (@pow_log_munch $ad:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@pow_log_munch $ad, {$($acc)* ($($inner)*)}, $($rest)*)
+    };
+
+    (@pow_log_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@pow_log_munch $ad, {$($acc)* $tok}, $($rest)*)
+    };
+
+    // ============================================================
+    // DIV_LOG COMMA-MUNCH: Find comma separator in div_log(a, b)
+    // ============================================================
+
+    (@div_log_munch $ad:ident, {$($lhs:tt)+}, , $($rhs:tt)+) => {{
+        let lhs = $crate::expr!(@add_munch $ad, {}, $($lhs)+ @end);
+        let rhs = $crate::expr!(@add_munch $ad, {}, $($rhs)+ @end);
+        $ad.div_log(lhs, rhs)
+    }};
+
+    (@div_log_munch $ad:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@div_log_munch $ad, {$($acc)* ($($inner)*)}, $($rest)*)
+    };
+
+    (@div_log_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@div_log_munch $ad, {$($acc)* $tok}, $($rest)*)
     };
 }
 
@@ -627,5 +673,44 @@ mod tests {
         // pow(2.0, x) = 2^3 = 8
         let f = expr!(ad, pow(2.0, x));
         assert_relative_eq!(ad.eval(f).unwrap(), 8.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_pow_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
+
+        let f = expr!(ad, pow_log(x, y));
+        assert_relative_eq!(ad.eval(f).unwrap(), 8.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_pow_log_complex_args() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0).unwrap();
+        // pow_log(x + 1, 2.0) = 3^2 = 9
+        let f = expr!(ad, pow_log(x + 1.0, 2.0));
+        assert_relative_eq!(ad.eval(f).unwrap(), 9.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_div_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(6.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+
+        let f = expr!(ad, div_log(x, y));
+        assert_eq!(ad.eval(f).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_expr_div_log_complex_args() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
+        // div_log(x * y, x + y) = 6 / 5 = 1.2
+        let f = expr!(ad, div_log(x * y, x + y));
+        assert_relative_eq!(ad.eval(f).unwrap(), 1.2, epsilon = 1e-10);
     }
 }

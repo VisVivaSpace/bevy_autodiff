@@ -1073,3 +1073,74 @@ fn test_autodiff_method_powi() {
     // d/dx x^3 = 3x^2 = 12
     assert!((ad.derivative(f, x, 1).unwrap() - 12.0).abs() < 1e-10);
 }
+
+// ============================================================================
+// Phase 4: Logarithmic derivative operations + stable_derivatives attribute
+// ============================================================================
+
+/// pow_log() function call
+#[crate::autodiff]
+fn pow_log_func(x: Var, y: Var) -> Var {
+    pow_log(x, y)
+}
+
+/// div_log() function call
+#[crate::autodiff]
+fn div_log_func(x: Var, y: Var) -> Var {
+    div_log(x, y)
+}
+
+/// powi_log via function call
+#[crate::autodiff]
+fn powi_log_func(x: Var) -> Var {
+    powi_log(x, 3)
+}
+
+/// stable_derivatives attribute: pow → pow_log, / → div_log
+#[crate::autodiff(stable_derivatives)]
+fn stable_power_div(x: Var, y: Var) -> Var {
+    pow(x, y) + x / y
+}
+
+#[test]
+fn test_autodiff_pow_log() {
+    let mut ad = AutoDiff::new();
+    let x = ad.var(2.0).unwrap();
+    let y = ad.var(3.0).unwrap();
+
+    // 2^3 = 8
+    let f = pow_log_func(&mut ad, x, y);
+    assert!((ad.eval(f).unwrap() - 8.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_autodiff_div_log() {
+    let mut ad = AutoDiff::new();
+    let x = ad.var(6.0).unwrap();
+    let y = ad.var(2.0).unwrap();
+
+    let f = div_log_func(&mut ad, x, y);
+    assert!((ad.eval(f).unwrap() - 3.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_autodiff_powi_log_derivative() {
+    let mut ad = AutoDiff::new();
+    let x = ad.var(2.0).unwrap();
+
+    // d/dx x^3 = 3x^2 = 12
+    let f = powi_log_func(&mut ad, x);
+    assert!((ad.derivative(f, x, 1).unwrap() - 12.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_autodiff_stable_derivatives() {
+    let mut ad = AutoDiff::new();
+    let x = ad.var(2.0).unwrap();
+    let y = ad.var(3.0).unwrap();
+
+    // pow(2,3) + 2/3 = 8 + 0.6667 = 8.6667
+    let f = stable_power_div(&mut ad, x, y);
+    let expected = 8.0 + 2.0 / 3.0;
+    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-10);
+}
