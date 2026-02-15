@@ -216,6 +216,30 @@ The Bevy ECS world stores the computation graph:
 - **Entities** represent variables (inputs, constants, intermediate results)
 - **Components** store values (`Value`), operations (`UnaryOp`, `BinaryOp`), connectivity (`UnaryInput`, `BinaryInputs`), and dependency bitmasks (`Dependencies`)
 
+### What Does ECS Actually Bring?
+
+This project is an exploration of ECS for automatic differentiation. After four releases, here is what we've found.
+
+**Where ECS is used:** Graph construction and symbolic differentiation only. When you call `var()`, `mul()`, `differentiate()`, etc., entities and components are created in a Bevy `World`. Once you call `compile()`, the ECS graph is flattened into a `Vec<NodeOp>` and the World is no longer involved.
+
+**Where ECS is not used:** All hot paths bypass ECS entirely. `eval()`, `gradient()`, and GPU `eval_batch()` operate on flat arrays with no entity lookups. This is by design -- ECS builds the graph, compiled arrays run it.
+
+**What ECS provides:**
+- **Open extensibility** -- adding new metadata to graph nodes (e.g., dependency bitmasks) is just adding a component. No core struct modifications required, and downstream code can attach arbitrary data to graph entities without touching the library.
+- **Structure-of-Arrays by default** -- Bevy's archetypal storage is inherently SoA, giving cache-friendly data layout for graph traversal without manual layout work.
+- **Parallel-ready** -- batch operations like differentiating w.r.t. multiple variables, CSE detection, or graph analysis passes could be parallelized via ECS systems. A `Vec<Node> + HashMap` approach would need manual threading.
+- **Inspectability** -- the graph is queryable through standard ECS patterns. Debug visualization, validation passes, and the DOT exporter all work through component queries.
+- **Bevy integration** -- if you're already in a Bevy application, the computation graph lives in a `World` you can inspect and extend naturally.
+
+**What ECS costs:**
+- `bevy_ecs` adds compile time (the heaviest dependency).
+- Entity creation has more overhead than a vec push (archetype lookup, component insertion).
+- `World` borrowing requires the extract-before-mutate pattern in `differentiate()`.
+
+All three costs are confined to graph construction -- a cold path that runs once. The compile-time cost is the most noticeable in practice.
+
+**Bottom line:** The algorithms that make this crate useful (symbolic differentiation, reverse-mode gradient, GPU dispatch) are independent of ECS. The architecture that makes it extensible and well-structured comes from ECS. The performance-critical paths compile out of ECS completely, so there is no runtime cost where it matters.
+
 ## Examples
 
 See [`examples/README.md`](examples/README.md) for descriptions. Run with:
