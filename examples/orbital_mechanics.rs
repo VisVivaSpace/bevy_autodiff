@@ -15,9 +15,9 @@ fn main() {
 
     let mut ad = AutoDiff::new();
 
-    let x = ad.var(x_val);
-    let y = ad.var(y_val);
-    let z = ad.var(z_val);
+    let x = ad.var(x_val).unwrap();
+    let y = ad.var(y_val).unwrap();
+    let z = ad.var(z_val).unwrap();
 
     // r = sqrt(x^2 + y^2 + z^2)
     let x2 = ad.square(x);
@@ -33,13 +33,13 @@ fn main() {
     let neg_one = ad.constant(-1.0);
     let v = ad.mul(neg_one, mu_over_r);
 
-    let v_val = ad.eval(v);
+    let v_val = ad.eval(v).unwrap();
     let r_val = (x_val.powi(2) + y_val.powi(2) + z_val.powi(2)).sqrt();
     println!("Potential V = {} km^2/s^2", v_val);
     println!("Expected:   V = {} km^2/s^2", -mu / r_val);
 
     // Gradient of potential: acceleration = -grad(V)
-    let grad = ad.gradient(v);
+    let grad = ad.gradient(v).unwrap();
     println!("\nGradient of V:");
     println!("  dV/dx = {} (acceleration x-component)", grad[0]);
     println!("  dV/dy = {}", grad[1]);

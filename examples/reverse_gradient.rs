@@ -15,8 +15,8 @@ fn main() {
 
     let mut ad = AutoDiff::new();
 
-    let x = ad.var(1.0);
-    let y = ad.var(2.0);
+    let x = ad.var(1.0).unwrap();
+    let y = ad.var(2.0).unwrap();
 
     // f(x, y) = x^2 + x*y + y^2
     let x2 = ad.square(x);
@@ -27,9 +27,9 @@ fn main() {
 
     // compile_primal: only the function value, no symbolic derivative graphs.
     // Reverse-mode gradient() handles the derivatives at eval time.
-    let mut cg = ad.compile_primal(f, &[x, y]);
+    let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
 
-    cg.eval(&[1.0, 2.0]);
+    cg.eval(&[1.0, 2.0]).unwrap();
     let val = cg.value();
     // gradient() does a single backward pass — cost is independent of #inputs.
     let grad = cg.gradient().to_vec();
@@ -39,7 +39,7 @@ fn main() {
     // df/dy = x + 2y = 1 + 4 = 5  ✓
 
     // Re-evaluate at a different point without recompiling.
-    cg.eval(&[3.0, -1.0]);
+    cg.eval(&[3.0, -1.0]).unwrap();
     let val = cg.value();
     let grad = cg.gradient().to_vec();
     println!("\nf(3, -1) = {} (expected 7)", val); // 9 + (-3) + 1 = 7
@@ -54,8 +54,8 @@ fn main() {
     println!("\n--- Rosenbrock gradient descent ---");
 
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
 
     // f(x,y) = (1 - x)^2 + 100*(y - x^2)^2
     let one = ad.constant(1.0);
@@ -69,14 +69,14 @@ fn main() {
     let f = ad.add(term1, term2);
 
     // Compile once, evaluate many times.
-    let mut cg = ad.compile_primal(f, &[x, y]);
+    let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
 
     // Simple gradient descent
     let mut pos = [0.0_f64, 0.0_f64];
     let lr = 0.001;
 
     for step in 0..5001 {
-        cg.eval(&pos);
+        cg.eval(&pos).unwrap();
         let val = cg.value();
         let grad = cg.gradient().to_vec();
 
@@ -107,9 +107,9 @@ fn main() {
     println!("\n--- eval_gradient convenience ---");
 
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
-    let z = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
+    let z = ad.var(0.0).unwrap();
 
     // f(x, y, z) = x*y + y*z + z*x   (3 inputs, one backward pass)
     let xy = ad.mul(x, y);
@@ -118,10 +118,10 @@ fn main() {
     let s1 = ad.add(xy, yz);
     let f = ad.add(s1, zx);
 
-    let mut cg = ad.compile_primal(f, &[x, y, z]);
+    let mut cg = ad.compile_primal(f, &[x, y, z]).unwrap();
 
     // eval_gradient does eval + gradient in one call
-    let grad = cg.eval_gradient(&[2.0, 3.0, 5.0]).to_vec();
+    let grad = cg.eval_gradient(&[2.0, 3.0, 5.0]).unwrap().to_vec();
     let val = cg.value();
     println!("f(2, 3, 5) = {} (expected 31)", val); // 6 + 15 + 10 = 31
     println!("gradient = {:?}", grad);

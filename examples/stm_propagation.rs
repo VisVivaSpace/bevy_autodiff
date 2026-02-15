@@ -53,9 +53,9 @@ fn build_two_body_system() -> TwoBodyStm {
     let mut ad = AutoDiff::new();
 
     // Inputs: position components
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
-    let z = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
+    let z = ad.var(0.0).unwrap();
 
     // r² = x² + y² + z²
     let x2 = ad.square(x);
@@ -84,9 +84,9 @@ fn build_two_body_system() -> TwoBodyStm {
     let inputs = [x, y, z];
     let partials = vec![vec![1, 0, 0], vec![0, 1, 0], vec![0, 0, 1]];
 
-    let cg_ax = ad.compile(ax, &inputs, &partials);
-    let cg_ay = ad.compile(ay, &inputs, &partials);
-    let cg_az = ad.compile(az, &inputs, &partials);
+    let cg_ax = ad.compile(ax, &inputs, &partials).unwrap();
+    let cg_ay = ad.compile(ay, &inputs, &partials).unwrap();
+    let cg_az = ad.compile(az, &inputs, &partials).unwrap();
 
     TwoBodyStm {
         cg_ax: RefCell::new(cg_ax),
@@ -103,11 +103,11 @@ fn build_two_body_system() -> TwoBodyStm {
 /// acceleration value and its 3 partial derivatives (one row of G).
 fn eval_accel_row(cg: &RefCell<CompiledGraph>, pos: &[f64; 3]) -> (f64, [f64; 3]) {
     let mut cg = cg.borrow_mut();
-    cg.eval(pos);
+    cg.eval(pos).unwrap();
     let val = cg.value();
-    let d0 = cg.partial(&[1, 0, 0]);
-    let d1 = cg.partial(&[0, 1, 0]);
-    let d2 = cg.partial(&[0, 0, 1]);
+    let d0 = cg.partial(&[1, 0, 0]).unwrap();
+    let d1 = cg.partial(&[0, 1, 0]).unwrap();
+    let d2 = cg.partial(&[0, 0, 1]).unwrap();
     (val, [d0, d1, d2])
 }
 

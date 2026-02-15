@@ -25,20 +25,20 @@
 //! let mut ad = AutoDiff::new();
 //!
 //! // Create input variables
-//! let x = ad.var(2.0);
-//! let y = ad.var(3.0);
+//! let x = ad.var(2.0).unwrap();
+//! let y = ad.var(3.0).unwrap();
 //!
 //! // Build computation graph: f = x * y
 //! let f = ad.mul(x, y);
-//! assert_eq!(ad.eval(f), 6.0);
+//! assert_eq!(ad.eval(f).unwrap(), 6.0);
 //!
 //! // Symbolic differentiation creates new graph entities
-//! let dfdx = ad.differentiate(f, x);
-//! assert_eq!(ad.eval(dfdx), 3.0); // df/dx = y = 3
+//! let dfdx = ad.differentiate(f, x).unwrap();
+//! assert_eq!(ad.eval(dfdx).unwrap(), 3.0); // df/dx = y = 3
 //!
 //! // Higher-order: d²f/dxdy = 1
-//! let d2fdxdy = ad.differentiate(dfdx, y);
-//! assert_eq!(ad.eval(d2fdxdy), 1.0);
+//! let d2fdxdy = ad.differentiate(dfdx, y).unwrap();
+//! assert_eq!(ad.eval(d2fdxdy).unwrap(), 1.0);
 //! ```
 //!
 //! # Reverse-mode gradient
@@ -47,16 +47,16 @@
 //! use bevy_autodiff::AutoDiff;
 //!
 //! let mut ad = AutoDiff::new();
-//! let x = ad.var(1.0);
-//! let y = ad.var(2.0);
+//! let x = ad.var(1.0).unwrap();
+//! let y = ad.var(2.0).unwrap();
 //!
 //! let x2 = ad.square(x);
 //! let y2 = ad.square(y);
 //! let f = ad.add(x2, y2); // x² + y²
 //!
 //! // Compile primal only, then use reverse-mode for gradient
-//! let mut cg = ad.compile_primal(f, &[x, y]);
-//! cg.eval(&[1.0, 2.0]);
+//! let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+//! cg.eval(&[1.0, 2.0]).unwrap();
 //! assert_eq!(cg.value(), 5.0);
 //!
 //! let grad = cg.gradient();
@@ -68,6 +68,7 @@ pub mod compiled;
 pub mod components;
 pub mod context;
 pub mod debug;
+pub mod error;
 pub mod graph;
 #[macro_use]
 pub mod macros;
@@ -84,6 +85,7 @@ mod tests;
 // Re-exports for convenience
 pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
+pub use error::AutoDiffError;
 pub use var::Var;
 
 // Re-export key component types
@@ -113,6 +115,12 @@ pub use graph::{
 pub use optimize::{
     build_cse_table, count_cse_opportunities, simplify_binary, simplify_unary, CseTable,
     OpSignature, SimplifyResult,
+};
+
+// Re-export operator overloading context and free functions
+pub use ops::{
+    acos, acosh, asin, asinh, atan, atanh, cos, cosh, exp, ln, pow, powf, powi, sin, sinh,
+    square, sqrt, tan, tanh, with_context,
 };
 
 // Compile-time assertions that all components are Send + Sync

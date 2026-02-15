@@ -17,6 +17,7 @@ exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 [dependencies]
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
+thiserror = "2"
 bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
 wgpu = { version = "28", optional = true }
 bytemuck = { version = "1.25", features = ["derive"], optional = true }

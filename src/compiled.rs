@@ -107,14 +107,18 @@ impl CompiledGraph {
     /// Evaluates the compiled graph at the given input values.
     ///
     /// After calling this, use `value()` and `partial()` to read results.
-    pub fn eval(&mut self, inputs: &[f64]) {
-        assert_eq!(
-            inputs.len(),
-            self.num_inputs,
-            "expected {} inputs, got {}",
-            self.num_inputs,
-            inputs.len()
-        );
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InputCountMismatch`](crate::error::AutoDiffError::InputCountMismatch) if the number of inputs
+    /// does not match the compiled graph's expected input count.
+    pub fn eval(&mut self, inputs: &[f64]) -> Result<(), crate::error::AutoDiffError> {
+        if inputs.len() != self.num_inputs {
+            return Err(crate::error::AutoDiffError::InputCountMismatch {
+                expected: self.num_inputs,
+                got: inputs.len(),
+            });
+        }
 
         for i in 0..self.nodes.len() {
             self.values[i] = match self.nodes[i] {
@@ -126,6 +130,7 @@ impl CompiledGraph {
                 }
             };
         }
+        Ok(())
     }
 
     /// Returns the function value from the most recent `eval()`.
@@ -138,20 +143,22 @@ impl CompiledGraph {
     ///
     /// The `multi_index` must match one of the partials passed to `compile()`.
     ///
-    /// # Panics
-    /// Panics if the requested partial was not compiled.
-    pub fn partial(&self, multi_index: &[usize]) -> f64 {
+    /// # Errors
+    ///
+    /// Returns [`PartialNotCompiled`](crate::error::AutoDiffError::PartialNotCompiled) if the requested partial
+    /// was not included when the graph was compiled.
+    pub fn partial(&self, multi_index: &[usize]) -> Result<f64, crate::error::AutoDiffError> {
         if let Some(&idx) = self.partial_lookup.get(multi_index) {
-            return self.values[idx];
+            return Ok(self.values[idx]);
         }
-        panic!(
-            "Partial {:?} was not compiled. Available: {:?}",
-            multi_index,
-            self.partial_outputs
+        Err(crate::error::AutoDiffError::PartialNotCompiled {
+            requested: multi_index.to_vec(),
+            available: self
+                .partial_outputs
                 .iter()
                 .map(|(mi, _)| mi.clone())
-                .collect::<Vec<_>>()
-        );
+                .collect(),
+        })
     }
 
     /// Returns the number of nodes in the compiled graph.
@@ -255,9 +262,9 @@ impl CompiledGraph {
     ///
     /// Equivalent to calling `eval(inputs)` followed by `gradient()`.
     /// Returns a slice of length `num_inputs`.
-    pub fn eval_gradient(&mut self, inputs: &[f64]) -> &[f64] {
-        self.eval(inputs);
-        self.gradient()
+    pub fn eval_gradient(&mut self, inputs: &[f64]) -> Result<&[f64], crate::error::AutoDiffError> {
+        self.eval(inputs)?;
+        Ok(self.gradient())
     }
 }
 
@@ -285,18 +292,22 @@ pub(crate) fn flatten_graph(
                 nodes.push(NodeOp::Input(pos));
             } else {
                 // Input not in our compile list — freeze at current value
-                let val = entity_ref.get::<Value>().unwrap().get();
+                let val = entity_ref.get::<Value>()
+                    .expect("internal: IsInput entity must have Value").get();
                 nodes.push(NodeOp::Constant(val));
             }
         } else if entity_ref.contains::<IsConstant>() {
-            let val = entity_ref.get::<Value>().unwrap().get();
+            let val = entity_ref.get::<Value>()
+                .expect("internal: IsConstant entity must have Value").get();
             nodes.push(NodeOp::Constant(val));
         } else if let Some(&UnaryOpMarker(op)) = entity_ref.get::<UnaryOpMarker>() {
-            let src_entity = entity_ref.get::<UnaryInput>().unwrap().get().entity();
+            let src_entity = entity_ref.get::<UnaryInput>()
+                .expect("internal: UnaryOpMarker entity must have UnaryInput").get().entity();
             let src = entity_to_index[&src_entity];
             nodes.push(NodeOp::Unary { op, src });
         } else if let Some(&BinaryOpMarker(op)) = entity_ref.get::<BinaryOpMarker>() {
-            let binary = entity_ref.get::<BinaryInputs>().unwrap();
+            let binary = entity_ref.get::<BinaryInputs>()
+                .expect("internal: BinaryOpMarker entity must have BinaryInputs");
             let lhs = entity_to_index[&binary.left.entity()];
             let rhs = entity_to_index[&binary.right.entity()];
             nodes.push(NodeOp::Binary { op, lhs, rhs });
@@ -485,9 +496,9 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 4, vec![]);
-        cg.eval(&[3.0]);
+        cg.eval(&[3.0]).unwrap();
         assert_eq!(cg.value(), 7.0); // 2*3 + 1
-        cg.eval(&[5.0]);
+        cg.eval(&[5.0]).unwrap();
         assert_eq!(cg.value(), 11.0); // 2*5 + 1
     }
 
@@ -658,7 +669,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 4, vec![]);
-        cg.eval(&[3.0]);
+        cg.eval(&[3.0]).unwrap();
         let grad = cg.gradient();
         assert_relative_eq!(grad[0], 2.0, epsilon = 1e-12);
     }
@@ -677,7 +688,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
-        cg.eval(&[3.0, 5.0]);
+        cg.eval(&[3.0, 5.0]).unwrap();
         let grad = cg.gradient();
         assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12); // df/dx = y
         assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12); // df/dy = x
@@ -697,7 +708,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 1, vec![]);
-        cg.eval(&[4.0]);
+        cg.eval(&[4.0]).unwrap();
         let grad = cg.gradient();
         assert_relative_eq!(grad[0], 8.0, epsilon = 1e-12); // df/dx = 2*4 = 8
     }
@@ -711,7 +722,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 1, vec![]);
-        cg.eval(&[3.0]);
+        cg.eval(&[3.0]).unwrap();
         let grad = cg.gradient();
         assert_relative_eq!(grad[0], 0.0, epsilon = 1e-12);
     }
@@ -724,7 +735,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 0, vec![]);
-        cg.eval(&[7.0]);
+        cg.eval(&[7.0]).unwrap();
         let grad = cg.gradient();
         assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
     }
@@ -739,7 +750,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 2, vec![]);
-        cg.eval(&[0.5]);
+        cg.eval(&[0.5]).unwrap();
         let e05 = 0.5_f64.exp();
         let expected = e05.cos() * e05;
         let grad = cg.gradient();
@@ -760,7 +771,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
-        let grad = cg.eval_gradient(&[3.0, 5.0]);
+        let grad = cg.eval_gradient(&[3.0, 5.0]).unwrap();
         assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12);
         assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12);
     }
@@ -781,7 +792,7 @@ mod tests {
         let mut cg = CompiledGraph::new(nodes, 2, 2, vec![]);
 
         for &(x, y) in &[(1.0, 2.0), (3.0, 4.0), (-1.0, 5.0), (0.0, 7.0)] {
-            let grad = cg.eval_gradient(&[x, y]);
+            let grad = cg.eval_gradient(&[x, y]).unwrap();
             assert_relative_eq!(grad[0], y, epsilon = 1e-12);
             assert_relative_eq!(grad[1], x, epsilon = 1e-12);
         }
@@ -807,7 +818,7 @@ mod tests {
         ];
 
         let mut cg = CompiledGraph::new(nodes, 2, 3, vec![]);
-        cg.eval(&[3.0, 5.0]);
+        cg.eval(&[3.0, 5.0]).unwrap();
 
         // gradient of the intermediate node 2 (x*y), not the output
         let grad = cg.gradient_of(2);

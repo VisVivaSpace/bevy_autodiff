@@ -10,8 +10,8 @@ use bevy_autodiff::AutoDiff;
 fn build_rosenbrock(
     ad: &mut AutoDiff,
 ) -> (bevy_autodiff::Var, bevy_autodiff::Var, bevy_autodiff::Var) {
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
     let one = ad.constant(1.0);
     let hundred = ad.constant(100.0);
 
@@ -33,7 +33,7 @@ fn bench_ecs_eval(c: &mut Criterion) {
             let (x, y, f) = build_rosenbrock(&mut ad);
             // We have to rebuild the graph each time for ECS since there's
             // no re-evaluation with new inputs without rebuilding
-            let _ = ad.eval(f);
+            let _ = ad.eval(f).unwrap();
             let _ = (x, y); // suppress unused warnings
         });
     });
@@ -44,7 +44,7 @@ fn bench_ecs_gradient(c: &mut Criterion) {
         b.iter(|| {
             let mut ad = AutoDiff::new();
             let (_x, _y, f) = build_rosenbrock(&mut ad);
-            let _ = ad.gradient(f);
+            let _ = ad.gradient(f).unwrap();
         });
     });
 }
@@ -52,11 +52,11 @@ fn bench_ecs_gradient(c: &mut Criterion) {
 fn bench_compiled_eval(c: &mut Criterion) {
     let mut ad = AutoDiff::new();
     let (x, y, f) = build_rosenbrock(&mut ad);
-    let mut cg = ad.compile_order(f, &[x, y], 1);
+    let mut cg = ad.compile_order(f, &[x, y], 1).unwrap();
 
     c.bench_function("compiled_rosenbrock_eval", |b| {
         b.iter(|| {
-            cg.eval(&[0.5, 0.8]);
+            cg.eval(&[0.5, 0.8]).unwrap();
             let _ = cg.value();
         });
     });
@@ -65,13 +65,13 @@ fn bench_compiled_eval(c: &mut Criterion) {
 fn bench_compiled_gradient(c: &mut Criterion) {
     let mut ad = AutoDiff::new();
     let (x, y, f) = build_rosenbrock(&mut ad);
-    let mut cg = ad.compile_order(f, &[x, y], 1);
+    let mut cg = ad.compile_order(f, &[x, y], 1).unwrap();
 
     c.bench_function("compiled_rosenbrock_gradient", |b| {
         b.iter(|| {
-            cg.eval(&[0.5, 0.8]);
-            let _ = cg.partial(&[1, 0]);
-            let _ = cg.partial(&[0, 1]);
+            cg.eval(&[0.5, 0.8]).unwrap();
+            let _ = cg.partial(&[1, 0]).unwrap();
+            let _ = cg.partial(&[0, 1]).unwrap();
         });
     });
 }
@@ -79,17 +79,17 @@ fn bench_compiled_gradient(c: &mut Criterion) {
 fn bench_compiled_hessian(c: &mut Criterion) {
     let mut ad = AutoDiff::new();
     let (x, y, f) = build_rosenbrock(&mut ad);
-    let mut cg = ad.compile_order(f, &[x, y], 2);
+    let mut cg = ad.compile_order(f, &[x, y], 2).unwrap();
 
     c.bench_function("compiled_rosenbrock_hessian", |b| {
         b.iter(|| {
-            cg.eval(&[0.5, 0.8]);
+            cg.eval(&[0.5, 0.8]).unwrap();
             let _ = cg.value();
-            let _ = cg.partial(&[1, 0]);
-            let _ = cg.partial(&[0, 1]);
-            let _ = cg.partial(&[2, 0]);
-            let _ = cg.partial(&[1, 1]);
-            let _ = cg.partial(&[0, 2]);
+            let _ = cg.partial(&[1, 0]).unwrap();
+            let _ = cg.partial(&[0, 1]).unwrap();
+            let _ = cg.partial(&[2, 0]).unwrap();
+            let _ = cg.partial(&[1, 1]).unwrap();
+            let _ = cg.partial(&[0, 2]).unwrap();
         });
     });
 }
@@ -97,7 +97,7 @@ fn bench_compiled_hessian(c: &mut Criterion) {
 fn bench_compiled_multipoint(c: &mut Criterion) {
     let mut ad = AutoDiff::new();
     let (x, y, f) = build_rosenbrock(&mut ad);
-    let mut cg = ad.compile_order(f, &[x, y], 1);
+    let mut cg = ad.compile_order(f, &[x, y], 1).unwrap();
 
     let points = vec![
         [0.0, 0.0],
@@ -115,10 +115,10 @@ fn bench_compiled_multipoint(c: &mut Criterion) {
     c.bench_function("compiled_rosenbrock_10_points", |b| {
         b.iter(|| {
             for pt in &points {
-                cg.eval(pt);
+                cg.eval(pt).unwrap();
                 let _ = cg.value();
-                let _ = cg.partial(&[1, 0]);
-                let _ = cg.partial(&[0, 1]);
+                let _ = cg.partial(&[1, 0]).unwrap();
+                let _ = cg.partial(&[0, 1]).unwrap();
             }
         });
     });

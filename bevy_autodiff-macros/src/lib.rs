@@ -29,7 +29,7 @@ use proc_macro::TokenStream;
 use quote::{format_ident, ToTokens};
 use syn::{
     parse_macro_input, parse_quote, visit_mut::VisitMut, Expr, ExprBinary, ExprCall, ExprLit,
-    ExprPath, ExprUnary, FnArg, ItemFn, Lit, Pat, Stmt, UnOp,
+    ExprMethodCall, ExprPath, ExprUnary, FnArg, ItemFn, Lit, Pat, Stmt, UnOp,
 };
 
 /// Transforms a function to work with AutoDiff.
@@ -65,7 +65,8 @@ use syn::{
 ///
 /// - Binary: `+`, `-`, `*`, `/`
 /// - Unary: `-` (negation)
-/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`
+/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`, `powi`, `powf`, `square`
+/// - Method syntax: `x.sin()`, `x.cos()`, etc. — transformed to `ad.sin(x)`, `ad.cos(x)`, etc.
 /// - Literals: float and integer literals become `ad.constant(value)`
 ///
 /// # Limitations
@@ -119,7 +120,7 @@ impl ExprTransformer {
             | "sinh" | "cosh" | "tanh"
             | "asin" | "acos" | "atan"
             | "asinh" | "acosh" | "atanh"
-            | "pow"
+            | "pow" | "powi" | "powf" | "square"
         )
     }
 
@@ -135,6 +136,7 @@ impl ExprTransformer {
             Expr::Binary(binary) => self.transform_binary(binary),
             Expr::Unary(unary) => self.transform_unary(unary),
             Expr::Call(call) => self.transform_call(call),
+            Expr::MethodCall(method_call) => self.transform_method_call(method_call),
             Expr::Lit(lit) => self.transform_literal(lit),
             Expr::Path(path) => self.transform_path(path),
             Expr::Paren(paren) => self.transform_expr(&paren.expr),
@@ -219,7 +221,31 @@ impl ExprTransformer {
             });
         }
 
-        // Single argument functions
+        // Handle powi(base, i32) — second arg is raw integer, not transformed
+        if func_name == "powi" && expr.args.len() == 2 {
+            let base = self.transform_expr(&expr.args[0]);
+            let base_temp = self.next_temp();
+            let exp_arg = &expr.args[1]; // raw i32, not transformed
+
+            return parse_quote!({
+                let #base_temp = #base;
+                ad.powi(#base_temp, #exp_arg)
+            });
+        }
+
+        // Handle powf(base, f64) — second arg is raw float, not transformed
+        if func_name == "powf" && expr.args.len() == 2 {
+            let base = self.transform_expr(&expr.args[0]);
+            let base_temp = self.next_temp();
+            let exp_arg = &expr.args[1]; // raw f64, not transformed
+
+            return parse_quote!({
+                let #base_temp = #base;
+                ad.powf(#base_temp, #exp_arg)
+            });
+        }
+
+        // Single argument functions (sin, cos, ..., square)
         if expr.args.len() != 1 {
             return Expr::Call(expr.clone());
         }
@@ -232,6 +258,54 @@ impl ExprTransformer {
             let #temp = #arg;
             ad.#method(#temp)
         })
+    }
+
+    /// Transform method-call syntax: `x.sin()` → `ad.sin(x)`, `x.powi(3)` → `ad.powi(x, 3)`
+    fn transform_method_call(&mut self, expr: &ExprMethodCall) -> Expr {
+        let method_name = expr.method.to_string();
+
+        if !Self::is_math_function(&method_name) {
+            // Not a math method — transform receiver and args, pass through
+            let mut new_expr = expr.clone();
+            new_expr.receiver = Box::new(self.transform_expr(&expr.receiver));
+            for arg in &mut new_expr.args {
+                *arg = self.transform_expr(arg);
+            }
+            return Expr::MethodCall(new_expr);
+        }
+
+        let receiver = self.transform_expr(&expr.receiver);
+        let recv_temp = self.next_temp();
+        let method = syn::Ident::new(&method_name, proc_macro2::Span::call_site());
+
+        // powi: x.powi(3) → ad.powi(x, 3) — second arg is raw integer
+        if method_name == "powi" && expr.args.len() == 1 {
+            let exp_arg = &expr.args[0]; // raw i32, not transformed
+            return parse_quote!({
+                let #recv_temp = #receiver;
+                ad.powi(#recv_temp, #exp_arg)
+            });
+        }
+
+        // powf: x.powf(2.5) → ad.powf(x, 2.5) — second arg is raw f64
+        if method_name == "powf" && expr.args.len() == 1 {
+            let exp_arg = &expr.args[0]; // raw f64, not transformed
+            return parse_quote!({
+                let #recv_temp = #receiver;
+                ad.powf(#recv_temp, #exp_arg)
+            });
+        }
+
+        // Zero-arg method calls: x.sin(), x.cos(), x.square(), etc.
+        if expr.args.is_empty() {
+            return parse_quote!({
+                let #recv_temp = #receiver;
+                ad.#method(#recv_temp)
+            });
+        }
+
+        // Fallback: not a recognized pattern, pass through
+        Expr::MethodCall(expr.clone())
     }
 
     /// Transform a literal to ad.constant(value)

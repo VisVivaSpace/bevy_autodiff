@@ -15,8 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Build computation graph on CPU
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
 
     // f(x, y) = sin(x * y) + exp(x)
     let xy = ad.mul(x, y);
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let f = ad.add(sin_xy, exp_x);
 
     // 3. Compile with first-order partials
-    let graph = ad.compile_order(f, &[x, y], 1);
+    let graph = ad.compile_order(f, &[x, y], 1).unwrap();
     println!(
         "Graph compiled: {} nodes, {} inputs",
         graph.num_nodes(),

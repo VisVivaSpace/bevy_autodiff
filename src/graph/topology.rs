@@ -6,12 +6,17 @@ use bevy_entity_ptr::EntityHandle;
 use std::collections::HashSet;
 
 use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput};
+use crate::error::AutoDiffError;
 
 /// Computes a topological ordering of all entities that affect the given output.
 ///
 /// Returns entities in dependency order: inputs first, then operations that
 /// depend only on already-visited entities, and so on. The output entity is last.
-pub fn topological_order(world: &World, output: Entity) -> Vec<Entity> {
+///
+/// # Errors
+///
+/// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
+pub fn topological_order(world: &World, output: Entity) -> Result<Vec<Entity>, AutoDiffError> {
     topological_order_multi(world, &[output])
 }
 
@@ -47,7 +52,11 @@ fn get_dependencies(world: &World, entity: Entity) -> Vec<Entity> {
 ///
 /// Uses a single DFS pass: dependencies are discovered and sorted simultaneously.
 /// Returns entities in dependency order (inputs first, outputs last).
-pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity> {
+///
+/// # Errors
+///
+/// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
+pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Result<Vec<Entity>, AutoDiffError> {
     let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut temp_mark = HashSet::new();
@@ -58,39 +67,44 @@ pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Vec<Entity>
         visited: &mut HashSet<Entity>,
         temp_mark: &mut HashSet<Entity>,
         result: &mut Vec<Entity>,
-    ) {
+    ) -> Result<(), AutoDiffError> {
         if visited.contains(&entity) {
-            return;
+            return Ok(());
         }
         if temp_mark.contains(&entity) {
-            panic!("Cycle detected in computation graph");
+            return Err(AutoDiffError::CycleDetected);
         }
 
         temp_mark.insert(entity);
 
         for dep in get_dependencies(world, entity) {
-            visit(dep, world, visited, temp_mark, result);
+            visit(dep, world, visited, temp_mark, result)?;
         }
 
         temp_mark.remove(&entity);
         visited.insert(entity);
         result.push(entity);
+        Ok(())
     }
 
     for &output in outputs {
-        visit(output, world, &mut visited, &mut temp_mark, &mut result);
+        visit(output, world, &mut visited, &mut temp_mark, &mut result)?;
     }
 
-    result
+    Ok(result)
 }
 
 /// Gets all input variable entities reachable from an output (not constants).
-pub fn find_all_inputs(world: &World, output: Entity) -> Vec<Entity> {
-    let order = topological_order(world, output);
-    order
+///
+/// # Errors
+///
+/// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
+pub fn find_all_inputs(world: &World, output: Entity) -> Result<Vec<Entity>, AutoDiffError> {
+    let order = topological_order(world, output)?;
+    Ok(order
         .into_iter()
         .filter(|&e| world.entity(e).contains::<IsInput>())
-        .collect()
+        .collect())
 }
 
 /// Finds the entity by handle, returning None if the entity doesn't exist.
@@ -144,7 +158,7 @@ mod tests {
         let mut world = World::new();
         let x = create_input(&mut world, 1.0);
 
-        let order = topological_order(&world, x);
+        let order = topological_order(&world, x).unwrap();
         assert_eq!(order, vec![x]);
     }
 
@@ -155,7 +169,7 @@ mod tests {
         let y = create_input(&mut world, 2.0);
         let sum = create_binary(&mut world, BinaryOp::Add, x, y);
 
-        let order = topological_order(&world, sum);
+        let order = topological_order(&world, sum).unwrap();
 
         // Inputs should come before the sum
         let x_pos = order.iter().position(|&e| e == x).unwrap();
@@ -173,7 +187,7 @@ mod tests {
         let x = create_input(&mut world, 1.0);
         let neg_x = create_unary(&mut world, UnaryOp::Neg, x);
 
-        let order = topological_order(&world, neg_x);
+        let order = topological_order(&world, neg_x).unwrap();
 
         let x_pos = order.iter().position(|&e| e == x).unwrap();
         let neg_pos = order.iter().position(|&e| e == neg_x).unwrap();
@@ -190,7 +204,7 @@ mod tests {
         let neg1 = create_unary(&mut world, UnaryOp::Neg, x);
         let neg2 = create_unary(&mut world, UnaryOp::Neg, neg1);
 
-        let order = topological_order(&world, neg2);
+        let order = topological_order(&world, neg2).unwrap();
 
         let x_pos = order.iter().position(|&e| e == x).unwrap();
         let neg1_pos = order.iter().position(|&e| e == neg1).unwrap();
@@ -208,7 +222,7 @@ mod tests {
         let x = create_input(&mut world, 1.0);
         let sum = create_binary(&mut world, BinaryOp::Add, x, x);
 
-        let order = topological_order(&world, sum);
+        let order = topological_order(&world, sum).unwrap();
 
         // x should appear only once
         assert_eq!(order.iter().filter(|&&e| e == x).count(), 1);
@@ -226,7 +240,7 @@ mod tests {
         let c = create_constant(&mut world, 5.0);
         let sum = create_binary(&mut world, BinaryOp::Add, x, c);
 
-        let order = topological_order(&world, sum);
+        let order = topological_order(&world, sum).unwrap();
 
         let x_pos = order.iter().position(|&e| e == x).unwrap();
         let c_pos = order.iter().position(|&e| e == c).unwrap();
@@ -259,7 +273,7 @@ mod tests {
         let sum1 = create_binary(&mut world, BinaryOp::Add, x, y);
         let sum2 = create_binary(&mut world, BinaryOp::Add, sum1, c);
 
-        let inputs = find_all_inputs(&world, sum2);
+        let inputs = find_all_inputs(&world, sum2).unwrap();
 
         // Should contain x and y but not c
         assert_eq!(inputs.len(), 2);
@@ -278,7 +292,7 @@ mod tests {
         let diff = create_binary(&mut world, BinaryOp::Sub, x, y);
         let prod = create_binary(&mut world, BinaryOp::Mul, sum, diff);
 
-        let order = topological_order(&world, prod);
+        let order = topological_order(&world, prod).unwrap();
 
         // Verify ordering constraints
         let x_pos = order.iter().position(|&e| e == x).unwrap();

@@ -21,7 +21,8 @@ pub fn to_dot(world: &World, output: Var) -> String {
     let mut dot = String::from("digraph {\n    rankdir=BT;\n");
 
     // Get all entities in topological order
-    let entities = topological_order(world, output.entity());
+    let entities = topological_order(world, output.entity())
+        .expect("debug: cycle detected in computation graph");
     let entity_to_id: std::collections::HashMap<Entity, usize> =
         entities.iter().enumerate().map(|(i, &e)| (e, i)).collect();
 
@@ -35,7 +36,7 @@ pub fn to_dot(world: &World, output: Var) -> String {
             "box"
         };
 
-        writeln!(dot, "    node_{} [label=\"{}\" shape={}];", i, label, shape).unwrap();
+        let _ = writeln!(dot, "    node_{} [label=\"{}\" shape={}];", i, label, shape);
     }
 
     // Generate edges
@@ -46,7 +47,7 @@ pub fn to_dot(world: &World, output: Var) -> String {
         if let Some(unary_input) = entity_ref.get::<UnaryInput>() {
             let input_entity = unary_input.get().entity();
             if let Some(&input_id) = entity_to_id.get(&input_entity) {
-                writeln!(dot, "    node_{} -> node_{};", input_id, node_id).unwrap();
+                let _ = writeln!(dot, "    node_{} -> node_{};", input_id, node_id);
             }
         }
 
@@ -55,20 +56,18 @@ pub fn to_dot(world: &World, output: Var) -> String {
             let right_entity = binary_inputs.right.entity();
 
             if let Some(&left_id) = entity_to_id.get(&left_entity) {
-                writeln!(
+                let _ = writeln!(
                     dot,
                     "    node_{} -> node_{} [label=\"L\"];",
                     left_id, node_id
-                )
-                .unwrap();
+                );
             }
             if let Some(&right_id) = entity_to_id.get(&right_entity) {
-                writeln!(
+                let _ = writeln!(
                     dot,
                     "    node_{} -> node_{} [label=\"R\"];",
                     right_id, node_id
-                )
-                .unwrap();
+                );
             }
         }
     }
@@ -114,7 +113,8 @@ fn get_node_label(world: &World, entity: Entity) -> String {
 ///
 /// Returns Ok(()) if valid, or Err with a description of the issue.
 pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
-    let entities = topological_order(world, output.entity());
+    let entities = topological_order(world, output.entity())
+        .expect("debug: cycle detected in computation graph");
 
     for &entity in &entities {
         let entity_ref = world.entity(entity);
@@ -126,40 +126,40 @@ pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
 
         // Check unary operations have input
         if entity_ref.contains::<UnaryOpMarker>() {
-            if entity_ref.get::<UnaryInput>().is_none() {
+            if let Some(input) = entity_ref.get::<UnaryInput>() {
+                if world.get_entity(input.get().entity()).is_err() {
+                    return Err(format!(
+                        "Unary operation {:?} references non-existent entity {:?}",
+                        entity,
+                        input.get().entity()
+                    ));
+                }
+            } else {
                 return Err(format!("Unary operation {:?} missing UnaryInput", entity));
-            }
-            let input = entity_ref.get::<UnaryInput>().unwrap();
-            if world.get_entity(input.get().entity()).is_err() {
-                return Err(format!(
-                    "Unary operation {:?} references non-existent entity {:?}",
-                    entity,
-                    input.get().entity()
-                ));
             }
         }
 
         // Check binary operations have inputs
         if entity_ref.contains::<BinaryOpMarker>() {
-            if entity_ref.get::<BinaryInputs>().is_none() {
+            if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
+                if world.get_entity(inputs.left.entity()).is_err() {
+                    return Err(format!(
+                        "Binary operation {:?} references non-existent left entity {:?}",
+                        entity,
+                        inputs.left.entity()
+                    ));
+                }
+                if world.get_entity(inputs.right.entity()).is_err() {
+                    return Err(format!(
+                        "Binary operation {:?} references non-existent right entity {:?}",
+                        entity,
+                        inputs.right.entity()
+                    ));
+                }
+            } else {
                 return Err(format!(
                     "Binary operation {:?} missing BinaryInputs",
                     entity
-                ));
-            }
-            let inputs = entity_ref.get::<BinaryInputs>().unwrap();
-            if world.get_entity(inputs.left.entity()).is_err() {
-                return Err(format!(
-                    "Binary operation {:?} references non-existent left entity {:?}",
-                    entity,
-                    inputs.left.entity()
-                ));
-            }
-            if world.get_entity(inputs.right.entity()).is_err() {
-                return Err(format!(
-                    "Binary operation {:?} references non-existent right entity {:?}",
-                    entity,
-                    inputs.right.entity()
                 ));
             }
         }
@@ -175,7 +175,8 @@ pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
 
 /// Counts the number of operations in a computation graph.
 pub fn count_operations(world: &World, output: Var) -> (usize, usize, usize) {
-    let entities = topological_order(world, output.entity());
+    let entities = topological_order(world, output.entity())
+        .expect("debug: cycle detected in computation graph");
     let mut inputs = 0;
     let mut constants = 0;
     let mut operations = 0;
@@ -202,7 +203,7 @@ mod tests {
     #[test]
     fn test_to_dot_simple() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.square(x);
 
         let dot = to_dot(ad.world(), y);
@@ -214,8 +215,8 @@ mod tests {
     #[test]
     fn test_validate_graph_valid() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
         assert!(validate_graph(ad.world(), f).is_ok());
@@ -224,8 +225,8 @@ mod tests {
     #[test]
     fn test_count_operations() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let c = ad.constant(1.0);
 
         let xy = ad.mul(x, y);

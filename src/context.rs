@@ -26,15 +26,15 @@ use crate::var::Var;
 /// let mut ad = AutoDiff::new();
 ///
 /// // Create input variables
-/// let x = ad.var(2.0);
-/// let y = ad.var(3.0);
+/// let x = ad.var(2.0).unwrap();
+/// let y = ad.var(3.0).unwrap();
 ///
 /// // Build computation graph: f = x * y + x
 /// let xy = ad.mul(x, y);
 /// let f = ad.add(xy, x);
 ///
 /// // Evaluate
-/// assert_eq!(ad.eval(f), 8.0); // 2*3 + 2 = 8
+/// assert_eq!(ad.eval(f).unwrap(), 8.0); // 2*3 + 2 = 8
 /// ```
 pub struct AutoDiff {
     /// The ECS world storing the computation graph.
@@ -79,12 +79,16 @@ impl AutoDiff {
     ///
     /// Input variables are the leaves of the computation graph.
     /// Derivatives are computed with respect to these inputs.
-    pub fn var(&mut self, value: f64) -> Var {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InputLimitExceeded`](crate::error::AutoDiffError::InputLimitExceeded) if more than 64 input
+    /// variables are created (the dependency bitmask is a u64).
+    pub fn var(&mut self, value: f64) -> Result<Var, crate::error::AutoDiffError> {
         let input_index = self.input_count;
-        assert!(
-            input_index < 64,
-            "bevy_autodiff supports at most 64 input variables (Dependencies uses a u64 bitmask)"
-        );
+        if input_index >= 64 {
+            return Err(crate::error::AutoDiffError::InputLimitExceeded { count: input_index });
+        }
         self.input_count += 1;
 
         let entity = self
@@ -99,7 +103,7 @@ impl AutoDiff {
 
         let v = Var::new(entity);
         self.inputs.push(v);
-        v
+        Ok(v)
     }
 
     /// Creates a constant variable with the given value.
@@ -127,30 +131,48 @@ impl AutoDiff {
     /// value computed at graph-construction time — it is **not** re-evaluated when
     /// inputs change. To re-evaluate at new input values, use
     /// [`CompiledGraph::eval()`](crate::compiled::CompiledGraph::eval).
-    pub fn eval(&self, var: Var) -> f64 {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MissingValue`](crate::error::AutoDiffError::MissingValue) if the variable does not have
+    /// a `Value` component (e.g., the entity is from a different context).
+    pub fn eval(&self, var: Var) -> Result<f64, crate::error::AutoDiffError> {
         self.world
             .entity(var.entity())
             .get::<Value>()
             .map(|v| v.get())
-            .expect("Variable missing Value component")
+            .ok_or(crate::error::AutoDiffError::MissingValue)
+    }
+
+    /// Internal eval that panics on missing Value.
+    /// Used by internal helpers (binary_op, unary_op, smart_*, is_const_value)
+    /// where the caller guarantees the entity has a Value component.
+    fn eval_unchecked(&self, var: Var) -> f64 {
+        self.world
+            .entity(var.entity())
+            .get::<Value>()
+            .map(|v| v.get())
+            .expect("internal: Variable must have Value component")
     }
 
     /// Sets the value of an input variable.
     ///
-    /// # Panics
-    /// Panics if the variable is not an input variable.
-    pub fn set_input(&mut self, var: Var, value: f64) {
+    /// # Errors
+    ///
+    /// Returns [`NotAnInput`](crate::error::AutoDiffError::NotAnInput) if the variable is not an input variable.
+    pub fn set_input(&mut self, var: Var, value: f64) -> Result<(), crate::error::AutoDiffError> {
         let entity = var.entity();
 
         // Verify it's an input
         if !self.world.entity(entity).contains::<IsInput>() {
-            panic!("set_input called on non-input variable");
+            return Err(crate::error::AutoDiffError::NotAnInput);
         }
 
         // Update value
         if let Some(mut val) = self.world.entity_mut(entity).get_mut::<Value>() {
             val.set(value);
         }
+        Ok(())
     }
 
     // =========================================================================
@@ -188,8 +210,8 @@ impl AutoDiff {
     /// Internal helper for creating binary operations.
     fn binary_op(&mut self, op: BinaryOp, a: Var, b: Var, f: fn(f64, f64) -> f64) -> Var {
         // Get values
-        let a_val = self.eval(a);
-        let b_val = self.eval(b);
+        let a_val = self.eval_unchecked(a);
+        let b_val = self.eval_unchecked(b);
         let result = f(a_val, b_val);
 
         // Compute dependencies (union of inputs)
@@ -325,7 +347,7 @@ impl AutoDiff {
 
     /// Internal helper for creating unary operations.
     fn unary_op(&mut self, op: UnaryOp, x: Var, f: fn(f64) -> f64) -> Var {
-        let x_val = self.eval(x);
+        let x_val = self.eval_unchecked(x);
         let result = f(x_val);
 
         // Copy dependencies from input
@@ -422,7 +444,7 @@ impl AutoDiff {
 
     /// Gathers current values of all input variables.
     fn gather_input_values(&self) -> Vec<f64> {
-        self.inputs.iter().map(|&v| self.eval(v)).collect()
+        self.inputs.iter().map(|&v| self.eval_unchecked(v)).collect()
     }
 
     /// Returns the position of `var` in `self.inputs`.
@@ -442,7 +464,8 @@ impl AutoDiff {
     /// Panics if any variable is not an input variable.
     pub fn set_inputs(&mut self, inputs: &[(Var, f64)]) {
         for &(var, value) in inputs {
-            self.set_input(var, value);
+            self.set_input(var, value)
+                .expect("set_inputs: variable is not an input");
         }
     }
 
@@ -460,20 +483,20 @@ impl AutoDiff {
     /// ```
     /// # use bevy_autodiff::AutoDiff;
     /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(2.0);
-    /// let y = ad.var(3.0);
+    /// let x = ad.var(2.0).unwrap();
+    /// let y = ad.var(3.0).unwrap();
     /// let f = ad.mul(x, y); // f = x * y
     ///
     /// // First derivative: df/dx = y
-    /// let dfdx = ad.differentiate(f, x);
-    /// assert_eq!(ad.eval(dfdx), 3.0);
+    /// let dfdx = ad.differentiate(f, x).unwrap();
+    /// assert_eq!(ad.eval(dfdx).unwrap(), 3.0);
     ///
     /// // Mixed partial: d²f/dxdy = 1
-    /// let d2fdxdy = ad.differentiate(dfdx, y);
-    /// assert_eq!(ad.eval(d2fdxdy), 1.0);
+    /// let d2fdxdy = ad.differentiate(dfdx, y).unwrap();
+    /// assert_eq!(ad.eval(d2fdxdy).unwrap(), 1.0);
     /// ```
-    pub fn differentiate(&mut self, output: Var, wrt: Var) -> Var {
-        let order = topological_order(&self.world, output.entity());
+    pub fn differentiate(&mut self, output: Var, wrt: Var) -> Result<Var, crate::error::AutoDiffError> {
+        let order = topological_order(&self.world, output.entity())?;
         let mut derivs: HashMap<bevy_ecs::entity::Entity, Var> = HashMap::new();
 
         let zero = self.zero();
@@ -518,14 +541,16 @@ impl AutoDiff {
             let z = Var::new(entity);
 
             if let Some(op) = unary_op {
-                let a_entity = unary_input_entity.unwrap();
+                let a_entity = unary_input_entity
+                    .expect("internal: unary op must have input entity");
                 let a = Var::new(a_entity);
                 let da = derivs[&a_entity];
 
                 let dz = self.differentiate_unary(op, z, a, da, one);
                 derivs.insert(entity, dz);
             } else if let Some(op) = binary_op {
-                let (a_entity, b_entity) = binary_input_entities.unwrap();
+                let (a_entity, b_entity) = binary_input_entities
+                    .expect("internal: binary op must have input entities");
                 let a = Var::new(a_entity);
                 let b = Var::new(b_entity);
                 let da = derivs[&a_entity];
@@ -538,7 +563,7 @@ impl AutoDiff {
             }
         }
 
-        derivs[&output.entity()]
+        Ok(derivs[&output.entity()])
     }
 
     /// Apply chain rule for a unary operation: z = op(a), given da = d(a)/d(wrt).
@@ -726,14 +751,14 @@ impl AutoDiff {
     /// ```
     /// # use bevy_autodiff::AutoDiff;
     /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(2.0);
+    /// let x = ad.var(2.0).unwrap();
     /// let f = ad.powi(x, 3); // x³
     ///
-    /// assert_eq!(ad.derivative(f, x, 1), 12.0); // 3x² = 12
-    /// assert_eq!(ad.derivative(f, x, 2), 12.0); // 6x = 12
-    /// assert_eq!(ad.derivative(f, x, 3), 6.0);  // 6
+    /// assert_eq!(ad.derivative(f, x, 1).unwrap(), 12.0); // 3x² = 12
+    /// assert_eq!(ad.derivative(f, x, 2).unwrap(), 12.0); // 6x = 12
+    /// assert_eq!(ad.derivative(f, x, 3).unwrap(), 6.0);  // 6
     /// ```
-    pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> f64 {
+    pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> Result<f64, crate::error::AutoDiffError> {
         if order == 0 {
             return self.eval(output);
         }
@@ -741,9 +766,9 @@ impl AutoDiff {
         let idx = self.input_index(input);
         let mut multi_index = vec![0usize; all_inputs.len()];
         multi_index[idx] = order;
-        let mut cg = self.compile(output, &all_inputs, &[multi_index.clone()]);
+        let mut cg = self.compile(output, &all_inputs, &[multi_index.clone()])?;
         let values = self.gather_input_values();
-        cg.eval(&values);
+        cg.eval(&values)?;
         cg.partial(&multi_index)
     }
 
@@ -760,15 +785,15 @@ impl AutoDiff {
     /// ```
     /// # use bevy_autodiff::AutoDiff;
     /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
+    /// let x = ad.var(1.0).unwrap();
+    /// let y = ad.var(2.0).unwrap();
     /// let x2 = ad.square(x);
     /// let f = ad.mul(x2, y); // x² * y
     ///
     /// // d²f/dxdy = 2x = 2
-    /// assert_eq!(ad.partial(f, &[1, 1], &[x, y]), 2.0);
+    /// assert_eq!(ad.partial(f, &[1, 1], &[x, y]).unwrap(), 2.0);
     /// ```
-    pub fn partial(&mut self, output: Var, multi_index: &[usize], inputs: &[Var]) -> f64 {
+    pub fn partial(&mut self, output: Var, multi_index: &[usize], inputs: &[Var]) -> Result<f64, crate::error::AutoDiffError> {
         assert_eq!(
             multi_index.len(),
             inputs.len(),
@@ -787,9 +812,9 @@ impl AutoDiff {
                 full_mi[idx] += count;
             }
         }
-        let mut cg = self.compile(output, &all_inputs, &[full_mi.clone()]);
+        let mut cg = self.compile(output, &all_inputs, &[full_mi.clone()])?;
         let values = self.gather_input_values();
-        cg.eval(&values);
+        cg.eval(&values)?;
         cg.partial(&full_mi)
     }
 
@@ -804,20 +829,20 @@ impl AutoDiff {
     /// ```
     /// # use bevy_autodiff::AutoDiff;
     /// let mut ad = AutoDiff::new();
-    /// let x = ad.var(1.0);
-    /// let y = ad.var(2.0);
+    /// let x = ad.var(1.0).unwrap();
+    /// let y = ad.var(2.0).unwrap();
     /// let x2 = ad.square(x);
     /// let y2 = ad.square(y);
     /// let f = ad.add(x2, y2); // x² + y²
     ///
-    /// let grad = ad.gradient(f);
+    /// let grad = ad.gradient(f).unwrap();
     /// assert_eq!(grad, vec![2.0, 4.0]); // [2x, 2y]
     /// ```
-    pub fn gradient(&mut self, output: Var) -> Vec<f64> {
+    pub fn gradient(&mut self, output: Var) -> Result<Vec<f64>, crate::error::AutoDiffError> {
         let all_inputs: Vec<Var> = self.inputs.clone();
         let n = all_inputs.len();
         if n == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let partials: Vec<Vec<usize>> = (0..n)
             .map(|i| {
@@ -826,9 +851,9 @@ impl AutoDiff {
                 mi
             })
             .collect();
-        let mut cg = self.compile(output, &all_inputs, &partials);
+        let mut cg = self.compile(output, &all_inputs, &partials)?;
         let values = self.gather_input_values();
-        cg.eval(&values);
+        cg.eval(&values)?;
         partials.iter().map(|mi| cg.partial(mi)).collect()
     }
 
@@ -853,7 +878,7 @@ impl AutoDiff {
         output: Var,
         inputs: &[Var],
         partials: &[Vec<usize>],
-    ) -> crate::compiled::CompiledGraph {
+    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
         use crate::compiled::{flatten_graph, CompiledGraph};
         use crate::graph::topology::topological_order_multi;
 
@@ -870,7 +895,7 @@ impl AutoDiff {
             let mut current = output;
             for (i, &count) in multi_index.iter().enumerate() {
                 for _ in 0..count {
-                    current = self.differentiate(current, inputs[i]);
+                    current = self.differentiate(current, inputs[i])?;
                 }
             }
             partial_vars.push((multi_index.clone(), current));
@@ -878,7 +903,7 @@ impl AutoDiff {
         }
 
         // 2. Topological sort all entities reachable from any output
-        let order = topological_order_multi(&self.world, &all_output_entities);
+        let order = topological_order_multi(&self.world, &all_output_entities)?;
 
         // 3. Build input entity -> position mapping
         let input_to_pos: HashMap<bevy_ecs::entity::Entity, usize> = inputs
@@ -897,7 +922,7 @@ impl AutoDiff {
             .map(|(mi, var)| (mi.clone(), entity_to_index[&var.entity()]))
             .collect();
 
-        CompiledGraph::new(nodes, inputs.len(), output_index, partial_outputs)
+        Ok(CompiledGraph::new(nodes, inputs.len(), output_index, partial_outputs))
     }
 
     /// Compiles only the function value (no symbolic derivatives).
@@ -909,7 +934,7 @@ impl AutoDiff {
         &mut self,
         output: Var,
         inputs: &[Var],
-    ) -> crate::compiled::CompiledGraph {
+    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
         self.compile(output, inputs, &[])
     }
 
@@ -922,7 +947,7 @@ impl AutoDiff {
         output: Var,
         inputs: &[Var],
         max_order: usize,
-    ) -> crate::compiled::CompiledGraph {
+    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
         let partials = crate::compiled::generate_multi_indices(inputs.len(), max_order);
         self.compile(output, inputs, &partials)
     }
@@ -962,7 +987,7 @@ impl AutoDiff {
     /// to fold identities like `0 * x → 0`, which deliberately deviates from
     /// IEEE 754 (where `0 * NaN = NaN`). See smart_mul / smart_div doc comments.
     fn is_const_value(&self, v: Var, val: f64) -> bool {
-        self.is_constant(v) && self.eval(v) == val
+        self.is_constant(v) && self.eval_unchecked(v) == val
     }
 
     /// Add with constant folding: skip if either is 0, fold if both constant.
@@ -974,7 +999,7 @@ impl AutoDiff {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
-            return self.constant(self.eval(a) + self.eval(b));
+            return self.constant(self.eval_unchecked(a) + self.eval_unchecked(b));
         }
         self.add(a, b)
     }
@@ -988,7 +1013,7 @@ impl AutoDiff {
             return self.smart_neg(b);
         }
         if self.is_constant(a) && self.is_constant(b) {
-            return self.constant(self.eval(a) - self.eval(b));
+            return self.constant(self.eval_unchecked(a) - self.eval_unchecked(b));
         }
         self.sub(a, b)
     }
@@ -1010,7 +1035,7 @@ impl AutoDiff {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
-            return self.constant(self.eval(a) * self.eval(b));
+            return self.constant(self.eval_unchecked(a) * self.eval_unchecked(b));
         }
         self.mul(a, b)
     }
@@ -1021,7 +1046,7 @@ impl AutoDiff {
             return a;
         }
         if self.is_constant(a) {
-            return self.constant(-self.eval(a));
+            return self.constant(-self.eval_unchecked(a));
         }
         self.neg(a)
     }
@@ -1040,7 +1065,7 @@ impl AutoDiff {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
-            return self.constant(self.eval(a) / self.eval(b));
+            return self.constant(self.eval_unchecked(a) / self.eval_unchecked(b));
         }
         self.div(a, b)
     }
@@ -1066,8 +1091,8 @@ mod tests {
     #[test]
     fn test_create_var() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
-        assert_eq!(ad.eval(x), 5.0);
+        let x = ad.var(5.0).unwrap();
+        assert_eq!(ad.eval(x).unwrap(), 5.0);
         assert!(ad.is_input(x));
         assert!(!ad.is_constant(x));
         assert_eq!(ad.input_count(), 1);
@@ -1077,7 +1102,7 @@ mod tests {
     fn test_create_constant() {
         let mut ad = AutoDiff::new();
         let c = ad.constant(42.0);
-        assert_eq!(ad.eval(c), 42.0);
+        assert_eq!(ad.eval(c).unwrap(), 42.0);
         assert!(!ad.is_input(c));
         assert!(ad.is_constant(c));
         assert_eq!(ad.input_count(), 0); // Constants don't count as inputs
@@ -1086,182 +1111,182 @@ mod tests {
     #[test]
     fn test_multiple_inputs() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
-        let z = ad.var(3.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+        let z = ad.var(3.0).unwrap();
 
         assert_eq!(ad.input_count(), 3);
-        assert_eq!(ad.eval(x), 1.0);
-        assert_eq!(ad.eval(y), 2.0);
-        assert_eq!(ad.eval(z), 3.0);
+        assert_eq!(ad.eval(x).unwrap(), 1.0);
+        assert_eq!(ad.eval(y).unwrap(), 2.0);
+        assert_eq!(ad.eval(z).unwrap(), 3.0);
     }
 
     #[test]
     fn test_inputs_tracking() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
         assert_eq!(ad.inputs(), &[x, y]);
     }
 
     #[test]
     fn test_set_input() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
-        assert_eq!(ad.eval(x), 5.0);
+        let x = ad.var(5.0).unwrap();
+        assert_eq!(ad.eval(x).unwrap(), 5.0);
 
-        ad.set_input(x, 10.0);
-        assert_eq!(ad.eval(x), 10.0);
+        ad.set_input(x, 10.0).unwrap();
+        assert_eq!(ad.eval(x).unwrap(), 10.0);
     }
 
     #[test]
-    #[should_panic(expected = "set_input called on non-input variable")]
+    #[should_panic(expected = "NotAnInput")]
     fn test_set_input_on_constant_panics() {
         let mut ad = AutoDiff::new();
         let c = ad.constant(5.0);
-        ad.set_input(c, 10.0);
+        ad.set_input(c, 10.0).unwrap();
     }
 
     // Binary operation tests
     #[test]
     fn test_add() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let z = ad.add(x, y);
-        assert_eq!(ad.eval(z), 5.0);
+        assert_eq!(ad.eval(z).unwrap(), 5.0);
     }
 
     #[test]
     fn test_sub() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
-        let y = ad.var(3.0);
+        let x = ad.var(5.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let z = ad.sub(x, y);
-        assert_eq!(ad.eval(z), 2.0);
+        assert_eq!(ad.eval(z).unwrap(), 2.0);
     }
 
     #[test]
     fn test_mul() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
-        let y = ad.var(5.0);
+        let x = ad.var(4.0).unwrap();
+        let y = ad.var(5.0).unwrap();
         let z = ad.mul(x, y);
-        assert_eq!(ad.eval(z), 20.0);
+        assert_eq!(ad.eval(z).unwrap(), 20.0);
     }
 
     #[test]
     fn test_div() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(10.0);
-        let y = ad.var(2.0);
+        let x = ad.var(10.0).unwrap();
+        let y = ad.var(2.0).unwrap();
         let z = ad.div(x, y);
-        assert_eq!(ad.eval(z), 5.0);
+        assert_eq!(ad.eval(z).unwrap(), 5.0);
     }
 
     #[test]
     fn test_pow() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let z = ad.pow(x, y);
-        assert_eq!(ad.eval(z), 8.0);
+        assert_eq!(ad.eval(z).unwrap(), 8.0);
     }
 
     // Unary operation tests
     #[test]
     fn test_neg() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
+        let x = ad.var(5.0).unwrap();
         let y = ad.neg(x);
-        assert_eq!(ad.eval(y), -5.0);
+        assert_eq!(ad.eval(y).unwrap(), -5.0);
     }
 
     #[test]
     fn test_sin_cos() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let s = ad.sin(x);
         let c = ad.cos(x);
 
-        assert_relative_eq!(ad.eval(s), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.eval(c), 1.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(s).unwrap(), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(c).unwrap(), 1.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_exp_ln() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let e = ad.exp(x);
         let l = ad.ln(x);
 
-        assert_relative_eq!(ad.eval(e), std::f64::consts::E, epsilon = 1e-10);
-        assert_relative_eq!(ad.eval(l), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(e).unwrap(), std::f64::consts::E, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(l).unwrap(), 0.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_sqrt() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
+        let x = ad.var(4.0).unwrap();
         let y = ad.sqrt(x);
-        assert_eq!(ad.eval(y), 2.0);
+        assert_eq!(ad.eval(y).unwrap(), 2.0);
     }
 
     #[test]
     fn test_sinh_cosh() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let sh = ad.sinh(x);
         let ch = ad.cosh(x);
 
-        assert_relative_eq!(ad.eval(sh), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.eval(ch), 1.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(sh).unwrap(), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(ch).unwrap(), 1.0, epsilon = 1e-10);
     }
 
     // Convenience operation tests
     #[test]
     fn test_square() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
+        let x = ad.var(5.0).unwrap();
         let y = ad.square(x);
-        assert_eq!(ad.eval(y), 25.0);
+        assert_eq!(ad.eval(y).unwrap(), 25.0);
     }
 
     #[test]
     fn test_powi() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.powi(x, 4);
-        assert_eq!(ad.eval(y), 16.0);
+        assert_eq!(ad.eval(y).unwrap(), 16.0);
     }
 
     #[test]
     fn test_powf() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
+        let x = ad.var(4.0).unwrap();
         let y = ad.powf(x, 0.5);
-        assert_eq!(ad.eval(y), 2.0);
+        assert_eq!(ad.eval(y).unwrap(), 2.0);
     }
 
     // Complex expression tests
     #[test]
     fn test_complex_expression() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
 
         // f = (x + y) * (x - y) = x² - y²
         let sum = ad.add(x, y);
         let diff = ad.sub(x, y);
         let f = ad.mul(sum, diff);
 
-        assert_eq!(ad.eval(f), -5.0); // 4 - 9 = -5
+        assert_eq!(ad.eval(f).unwrap(), -5.0); // 4 - 9 = -5
     }
 
     #[test]
     fn test_polynomial() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
 
         // f = x³ + 2x² + 3x + 4
         let c4 = ad.constant(4.0);
@@ -1281,14 +1306,14 @@ mod tests {
         let f = ad.add(term3, sum1);
 
         // f(2) = 8 + 8 + 6 + 4 = 26
-        assert_eq!(ad.eval(f), 26.0);
+        assert_eq!(ad.eval(f).unwrap(), 26.0);
     }
 
     // Dependency tests
     #[test]
     fn test_dependencies_single_input() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let y = ad.square(x);
 
         assert!(ad.depends_on(y, x));
@@ -1298,9 +1323,9 @@ mod tests {
     #[test]
     fn test_dependencies_multiple_inputs() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
-        let z = ad.var(3.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+        let z = ad.var(3.0).unwrap();
 
         // f depends on x and y, but not z
         let f = ad.mul(x, y);
@@ -1313,7 +1338,7 @@ mod tests {
     #[test]
     fn test_dependencies_constant() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let c = ad.constant(5.0);
 
         // f = x * c
@@ -1326,7 +1351,7 @@ mod tests {
     #[test]
     fn test_chain_rule_setup() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
 
         // f = sin(x²)
         let x2 = ad.square(x);
@@ -1339,8 +1364,8 @@ mod tests {
     #[test]
     fn test_var_equality() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
 
         assert_eq!(x, x);
         assert_ne!(x, y);
@@ -1360,350 +1385,350 @@ mod tests {
     fn test_diff_identity() {
         // d/dx(x) = 1
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
-        let dxdx = ad.differentiate(x, x);
-        assert_eq!(ad.eval(dxdx), 1.0);
+        let x = ad.var(3.0).unwrap();
+        let dxdx = ad.differentiate(x, x).unwrap();
+        assert_eq!(ad.eval(dxdx).unwrap(), 1.0);
     }
 
     #[test]
     fn test_diff_constant() {
         // d/dx(c) = 0
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let c = ad.constant(5.0);
-        let dc = ad.differentiate(c, x);
-        assert_eq!(ad.eval(dc), 0.0);
+        let dc = ad.differentiate(c, x).unwrap();
+        assert_eq!(ad.eval(dc).unwrap(), 0.0);
     }
 
     #[test]
     fn test_diff_other_input() {
         // d/dx(y) = 0
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
-        let y = ad.var(5.0);
-        let dy = ad.differentiate(y, x);
-        assert_eq!(ad.eval(dy), 0.0);
+        let x = ad.var(3.0).unwrap();
+        let y = ad.var(5.0).unwrap();
+        let dy = ad.differentiate(y, x).unwrap();
+        assert_eq!(ad.eval(dy).unwrap(), 0.0);
     }
 
     #[test]
     fn test_diff_neg() {
         // d/dx(-x) = -1
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let f = ad.neg(x);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), -1.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), -1.0);
     }
 
     #[test]
     fn test_diff_add() {
         // d/dx(x + c) = 1
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let c = ad.constant(5.0);
         let f = ad.add(x, c);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), 1.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), 1.0);
     }
 
     #[test]
     fn test_diff_sub() {
         // d/dx(x - c) = 1
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let c = ad.constant(5.0);
         let f = ad.sub(x, c);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), 1.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), 1.0);
     }
 
     #[test]
     fn test_diff_mul_by_constant() {
         // d/dx(c * x) = c
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let c = ad.constant(5.0);
         let f = ad.mul(c, x);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), 5.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), 5.0);
     }
 
     #[test]
     fn test_diff_mul_two_vars() {
         // d/dx(x * y) = y
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), 3.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), 3.0);
     }
 
     #[test]
     fn test_diff_div_by_constant() {
         // d/dx(x / c) = 1/c
         let mut ad = AutoDiff::new();
-        let x = ad.var(6.0);
+        let x = ad.var(6.0).unwrap();
         let c = ad.constant(3.0);
         let f = ad.div(x, c);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 1.0 / 3.0, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 1.0 / 3.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_square() {
         // d/dx(x²) = 2x at x=3 → 6
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let f = ad.square(x);
-        let df = ad.differentiate(f, x);
-        assert_eq!(ad.eval(df), 6.0);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_eq!(ad.eval(df).unwrap(), 6.0);
     }
 
     #[test]
     fn test_diff_pow_const_exp() {
         // d/dx(x^3) = 3x² at x=2 → 12
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let f = ad.powi(x, 3);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 12.0, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 12.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_sin() {
         // d/dx(sin(x)) = cos(x) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.sin(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 0.5_f64.cos(), epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 0.5_f64.cos(), epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_cos() {
         // d/dx(cos(x)) = -sin(x) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.cos(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), -(0.5_f64.sin()), epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), -(0.5_f64.sin()), epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_tan() {
         // d/dx(tan(x)) = 1/cos²(x) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.tan(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 / (0.5_f64.cos().powi(2));
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_exp() {
         // d/dx(exp(x)) = exp(x) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.exp(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 1.0_f64.exp(), epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 1.0_f64.exp(), epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_ln() {
         // d/dx(ln(x)) = 1/x at x=2
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let f = ad.ln(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 0.5, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 0.5, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_sqrt() {
         // d/dx(sqrt(x)) = 1/(2*sqrt(x)) at x=4 → 0.25
         let mut ad = AutoDiff::new();
-        let x = ad.var(4.0);
+        let x = ad.var(4.0).unwrap();
         let f = ad.sqrt(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 0.25, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 0.25, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_sinh() {
         // d/dx(sinh(x)) = cosh(x) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.sinh(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 1.0_f64.cosh(), epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 1.0_f64.cosh(), epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_cosh() {
         // d/dx(cosh(x)) = sinh(x) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.cosh(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 1.0_f64.sinh(), epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 1.0_f64.sinh(), epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_tanh() {
         // d/dx(tanh(x)) = 1 - tanh²(x) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.tanh(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 - 0.5_f64.tanh().powi(2);
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_asin() {
         // d/dx(asin(x)) = 1/sqrt(1-x²) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.asin(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 / (1.0 - 0.25_f64).sqrt();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_acos() {
         // d/dx(acos(x)) = -1/sqrt(1-x²) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.acos(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = -1.0 / (1.0 - 0.25_f64).sqrt();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_atan() {
         // d/dx(atan(x)) = 1/(1+x²) at x=1 → 0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.atan(x);
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 0.5, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 0.5, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_asinh() {
         // d/dx(asinh(x)) = 1/sqrt(x²+1) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.asinh(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 / (2.0_f64).sqrt();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_acosh() {
         // d/dx(acosh(x)) = 1/sqrt(x²-1) at x=2
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let f = ad.acosh(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 / (3.0_f64).sqrt();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_atanh() {
         // d/dx(atanh(x)) = 1/(1-x²) at x=0.5 → 1/0.75
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let f = ad.atanh(x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0 / (1.0 - 0.25);
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_chain_rule() {
         // d/dx(sin(x²)) = 2x * cos(x²) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let x2 = ad.square(x);
         let f = ad.sin(x2);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 2.0 * 1.0_f64.cos(); // 2*1 * cos(1)
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_product_rule() {
         // d/dx(x * sin(x)) = sin(x) + x * cos(x) at x=1
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let sin_x = ad.sin(x);
         let f = ad.mul(x, sin_x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = 1.0_f64.sin() + 1.0 * 1.0_f64.cos();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_quotient_rule() {
         // d/dx(sin(x)/x) = (cos(x)*x - sin(x)) / x² at x=2
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let sin_x = ad.sin(x);
         let f = ad.div(sin_x, x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = (2.0_f64.cos() * 2.0 - 2.0_f64.sin()) / 4.0;
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_second_derivative() {
         // d²/dx²(x³) = 6x at x=2 → 12
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let f = ad.powi(x, 3);
-        let df = ad.differentiate(f, x);
-        let d2f = ad.differentiate(df, x);
-        assert_relative_eq!(ad.eval(d2f), 12.0, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        let d2f = ad.differentiate(df, x).unwrap();
+        assert_relative_eq!(ad.eval(d2f).unwrap(), 12.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_third_derivative() {
         // d³/dx³(x⁴) = 24x at x=1 → 24
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let f = ad.powi(x, 4);
-        let df = ad.differentiate(f, x);
-        let d2f = ad.differentiate(df, x);
-        let d3f = ad.differentiate(d2f, x);
-        assert_relative_eq!(ad.eval(d3f), 24.0, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        let d2f = ad.differentiate(df, x).unwrap();
+        let d3f = ad.differentiate(d2f, x).unwrap();
+        assert_relative_eq!(ad.eval(d3f).unwrap(), 24.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_mixed_partial() {
         // d²/dxdy(x * y) = 1
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
-        let dfdx = ad.differentiate(f, x);
-        let d2fdxdy = ad.differentiate(dfdx, y);
-        assert_relative_eq!(ad.eval(d2fdxdy), 1.0, epsilon = 1e-10);
+        let dfdx = ad.differentiate(f, x).unwrap();
+        let d2fdxdy = ad.differentiate(dfdx, y).unwrap();
+        assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), 1.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_mixed_partial_symmetry() {
         // d²f/dxdy = d²f/dydx for f = x² * y + y³
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(2.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
 
         let x2 = ad.square(x);
         let x2y = ad.mul(x2, y);
@@ -1711,27 +1736,27 @@ mod tests {
         let y3 = ad.mul(y, y2);
         let f = ad.add(x2y, y3);
 
-        let dfdx = ad.differentiate(f, x);
-        let d2fdxdy = ad.differentiate(dfdx, y);
+        let dfdx = ad.differentiate(f, x).unwrap();
+        let d2fdxdy = ad.differentiate(dfdx, y).unwrap();
 
-        let dfdy = ad.differentiate(f, y);
-        let d2fdydx = ad.differentiate(dfdy, x);
+        let dfdy = ad.differentiate(f, y).unwrap();
+        let d2fdydx = ad.differentiate(dfdy, x).unwrap();
 
-        assert_relative_eq!(ad.eval(d2fdxdy), ad.eval(d2fdydx), epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), ad.eval(d2fdydx).unwrap(), epsilon = 1e-10);
         // d²f/dxdy = 2x at (1,2) → 2
-        assert_relative_eq!(ad.eval(d2fdxdy), 2.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), 2.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_diff_exp_chain() {
         // d/dx(exp(sin(x))) = exp(sin(x)) * cos(x) at x=0.5
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
+        let x = ad.var(0.5).unwrap();
         let sin_x = ad.sin(x);
         let f = ad.exp(sin_x);
-        let df = ad.differentiate(f, x);
+        let df = ad.differentiate(f, x).unwrap();
         let expected = (0.5_f64.sin()).exp() * 0.5_f64.cos();
-        assert_relative_eq!(ad.eval(df), expected, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(df).unwrap(), expected, epsilon = 1e-10);
     }
 
     #[test]
@@ -1740,7 +1765,7 @@ mod tests {
         // f'= 3x² + 4x + 3
         // At x=2: f' = 12 + 8 + 3 = 23
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let c4 = ad.constant(4.0);
         let c3 = ad.constant(3.0);
         let c2 = ad.constant(2.0);
@@ -1754,8 +1779,8 @@ mod tests {
         let sum1 = ad.add(term2, sum0);
         let f = ad.add(x3, sum1);
 
-        let df = ad.differentiate(f, x);
-        assert_relative_eq!(ad.eval(df), 23.0, epsilon = 1e-10);
+        let df = ad.differentiate(f, x).unwrap();
+        assert_relative_eq!(ad.eval(df).unwrap(), 23.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -1764,8 +1789,8 @@ mod tests {
         // df/dx = -2(1-x) + 100 * 2(y-x²) * (-2x) = 2(x-1) - 400x(y-x²)
         // At (1,1): df/dx = 0
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
-        let y = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(1.0).unwrap();
         let one = ad.constant(1.0);
         let hundred = ad.constant(100.0);
 
@@ -1777,11 +1802,11 @@ mod tests {
         let term2 = ad.mul(hundred, term2_inner);
         let f = ad.add(term1, term2);
 
-        let dfdx = ad.differentiate(f, x);
-        let dfdy = ad.differentiate(f, y);
+        let dfdx = ad.differentiate(f, x).unwrap();
+        let dfdy = ad.differentiate(f, y).unwrap();
 
-        assert_relative_eq!(ad.eval(dfdx), 0.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.eval(dfdy), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdx).unwrap(), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdy).unwrap(), 0.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -1791,8 +1816,8 @@ mod tests {
         // df/dy = 200(y-x²)
         // At (0,0): df/dx = -2, df/dy = 0
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
+        let y = ad.var(0.0).unwrap();
         let one = ad.constant(1.0);
         let hundred = ad.constant(100.0);
 
@@ -1804,11 +1829,11 @@ mod tests {
         let term2 = ad.mul(hundred, term2_inner);
         let f = ad.add(term1, term2);
 
-        let dfdx = ad.differentiate(f, x);
-        let dfdy = ad.differentiate(f, y);
+        let dfdx = ad.differentiate(f, x).unwrap();
+        let dfdy = ad.differentiate(f, y).unwrap();
 
-        assert_relative_eq!(ad.eval(dfdx), -2.0, epsilon = 1e-10);
-        assert_relative_eq!(ad.eval(dfdy), 0.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdx).unwrap(), -2.0, epsilon = 1e-10);
+        assert_relative_eq!(ad.eval(dfdy).unwrap(), 0.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -1816,11 +1841,11 @@ mod tests {
         // Verify that differentiating a constant wrt x produces a
         // constant entity, not just a value of 0
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let c = ad.constant(5.0);
-        let dc = ad.differentiate(c, x);
+        let dc = ad.differentiate(c, x).unwrap();
         assert!(ad.is_constant(dc));
-        assert_eq!(ad.eval(dc), 0.0);
+        assert_eq!(ad.eval(dc).unwrap(), 0.0);
     }
 
     // =========================================================================
@@ -1831,14 +1856,14 @@ mod tests {
     fn test_compile_value_only() {
         // f = x * y, no partials
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
-        let mut cg = ad.compile(f, &[x, y], &[]);
-        cg.eval(&[2.0, 3.0]);
+        let mut cg = ad.compile(f, &[x, y], &[]).unwrap();
+        cg.eval(&[2.0, 3.0]).unwrap();
         assert_eq!(cg.value(), 6.0);
-        cg.eval(&[4.0, 5.0]);
+        cg.eval(&[4.0, 5.0]).unwrap();
         assert_eq!(cg.value(), 20.0);
     }
 
@@ -1846,72 +1871,72 @@ mod tests {
     fn test_compile_with_derivatives() {
         // f = x², df/dx = 2x, d²f/dx² = 2
         let mut ad = AutoDiff::new();
-        let x = ad.var(3.0);
+        let x = ad.var(3.0).unwrap();
         let f = ad.square(x);
 
-        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]);
-        cg.eval(&[3.0]);
+        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]).unwrap();
+        cg.eval(&[3.0]).unwrap();
         assert_eq!(cg.value(), 9.0);
-        assert_eq!(cg.partial(&[1]), 6.0);
-        assert_eq!(cg.partial(&[2]), 2.0);
+        assert_eq!(cg.partial(&[1]).unwrap(), 6.0);
+        assert_eq!(cg.partial(&[2]).unwrap(), 2.0);
 
         // Different input
-        cg.eval(&[5.0]);
+        cg.eval(&[5.0]).unwrap();
         assert_eq!(cg.value(), 25.0);
-        assert_relative_eq!(cg.partial(&[1]), 10.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[2]), 2.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1]).unwrap(), 10.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[2]).unwrap(), 2.0, epsilon = 1e-10);
     }
 
     #[test]
     fn test_compile_order_two_vars() {
         // f = x * y, compile all partials up to order 2
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
-        let mut cg = ad.compile_order(f, &[x, y], 2);
-        cg.eval(&[2.0, 3.0]);
+        let mut cg = ad.compile_order(f, &[x, y], 2).unwrap();
+        cg.eval(&[2.0, 3.0]).unwrap();
 
         assert_eq!(cg.value(), 6.0);
-        assert_relative_eq!(cg.partial(&[1, 0]), 3.0, epsilon = 1e-10); // df/dx = y
-        assert_relative_eq!(cg.partial(&[0, 1]), 2.0, epsilon = 1e-10); // df/dy = x
-        assert_relative_eq!(cg.partial(&[1, 1]), 1.0, epsilon = 1e-10); // d²f/dxdy = 1
-        assert_relative_eq!(cg.partial(&[2, 0]), 0.0, epsilon = 1e-10); // d²f/dx² = 0
-        assert_relative_eq!(cg.partial(&[0, 2]), 0.0, epsilon = 1e-10); // d²f/dy² = 0
+        assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), 3.0, epsilon = 1e-10); // df/dx = y
+        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), 2.0, epsilon = 1e-10); // df/dy = x
+        assert_relative_eq!(cg.partial(&[1, 1]).unwrap(), 1.0, epsilon = 1e-10); // d²f/dxdy = 1
+        assert_relative_eq!(cg.partial(&[2, 0]).unwrap(), 0.0, epsilon = 1e-10); // d²f/dx² = 0
+        assert_relative_eq!(cg.partial(&[0, 2]).unwrap(), 0.0, epsilon = 1e-10); // d²f/dy² = 0
     }
 
     #[test]
     fn test_compile_sin_exp() {
         // f = sin(exp(x))
         let mut ad = AutoDiff::new();
-        let x = ad.var(1.0);
+        let x = ad.var(1.0).unwrap();
         let exp_x = ad.exp(x);
         let f = ad.sin(exp_x);
 
-        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]);
+        let mut cg = ad.compile(f, &[x], &[vec![1], vec![2]]).unwrap();
 
         // Eval at x=0
-        cg.eval(&[0.0]);
+        cg.eval(&[0.0]).unwrap();
         assert_relative_eq!(cg.value(), 1.0_f64.sin(), epsilon = 1e-10);
         // f'(x) = cos(exp(x)) * exp(x)
         let expected_d1 = 1.0_f64.cos() * 1.0_f64;
-        assert_relative_eq!(cg.partial(&[1]), expected_d1, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1]).unwrap(), expected_d1, epsilon = 1e-10);
 
         // Eval at different point
-        cg.eval(&[0.5]);
+        cg.eval(&[0.5]).unwrap();
         let e05 = 0.5_f64.exp();
         assert_relative_eq!(cg.value(), e05.sin(), epsilon = 1e-10);
         let expected_d1 = e05.cos() * e05;
-        assert_relative_eq!(cg.partial(&[1]), expected_d1, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1]).unwrap(), expected_d1, epsilon = 1e-10);
     }
 
     #[test]
     fn test_compile_matches_ecs() {
         // Verify compiled output matches ECS evaluation for Rosenbrock
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.5);
-        let y = ad.var(0.8);
+        let x = ad.var(0.5).unwrap();
+        let y = ad.var(0.8).unwrap();
         let one = ad.constant(1.0);
         let hundred = ad.constant(100.0);
 
@@ -1924,17 +1949,17 @@ mod tests {
         let f = ad.add(term1, term2);
 
         // ECS derivatives
-        let ecs_val = ad.eval(f);
-        let ecs_dfdx = ad.derivative(f, x, 1);
-        let ecs_dfdy = ad.derivative(f, y, 1);
+        let ecs_val = ad.eval(f).unwrap();
+        let ecs_dfdx = ad.derivative(f, x, 1).unwrap();
+        let ecs_dfdy = ad.derivative(f, y, 1).unwrap();
 
         // Compiled derivatives
-        let mut cg = ad.compile_order(f, &[x, y], 1);
-        cg.eval(&[0.5, 0.8]);
+        let mut cg = ad.compile_order(f, &[x, y], 1).unwrap();
+        cg.eval(&[0.5, 0.8]).unwrap();
 
         assert_relative_eq!(cg.value(), ecs_val, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[1, 0]), ecs_dfdx, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[0, 1]), ecs_dfdy, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), ecs_dfdx, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), ecs_dfdy, epsilon = 1e-10);
     }
 
     #[test]
@@ -1942,23 +1967,23 @@ mod tests {
         // f(x,y) = x^y, df/dx = y * x^(y-1), df/dy = x^y * ln(x)
         // Verify that the derivative graph is symbolic in y (not frozen at compile-time y).
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.pow(x, y);
 
-        let mut cg = ad.compile_order(f, &[x, y], 1);
+        let mut cg = ad.compile_order(f, &[x, y], 1).unwrap();
 
         // At (x=2, y=3): f = 8, df/dx = 3*4 = 12, df/dy = 8*ln(2)
-        cg.eval(&[2.0, 3.0]);
+        cg.eval(&[2.0, 3.0]).unwrap();
         assert_relative_eq!(cg.value(), 8.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[1, 0]), 12.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[0, 1]), 8.0 * 2.0_f64.ln(), epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), 12.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), 8.0 * 2.0_f64.ln(), epsilon = 1e-10);
 
         // Re-evaluate at (x=3, y=2): f = 9, df/dx = 2*3 = 6, df/dy = 9*ln(3)
-        cg.eval(&[3.0, 2.0]);
+        cg.eval(&[3.0, 2.0]).unwrap();
         assert_relative_eq!(cg.value(), 9.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[1, 0]), 6.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[0, 1]), 9.0 * 3.0_f64.ln(), epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), 6.0, epsilon = 1e-10);
+        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), 9.0 * 3.0_f64.ln(), epsilon = 1e-10);
     }
 
     #[test]
@@ -1971,18 +1996,18 @@ mod tests {
         // Exercise this via differentiate: d/dy(x) = 0 (constant-folded).
         // The chain rule produces 0 * (something), and smart_mul folds it.
         let mut ad = AutoDiff::new();
-        let x = ad.var(f64::NAN);
-        let y = ad.var(1.0);
+        let x = ad.var(f64::NAN).unwrap();
+        let y = ad.var(1.0).unwrap();
 
         // f = x + y; df/dx at x=NaN should still be the constant 1
         // (smart_mul folds 0*... terms, smart_add collapses 0+1 → 1)
         let f = ad.add(x, y);
-        let df_dy = ad.differentiate(f, y);
+        let df_dy = ad.differentiate(f, y).unwrap();
         assert!(
             ad.is_constant(df_dy),
             "d(x+y)/dy should be constant-folded to 1"
         );
-        assert_eq!(ad.eval(df_dy), 1.0);
+        assert_eq!(ad.eval(df_dy).unwrap(), 1.0);
     }
 
     // =========================================================================
@@ -1997,22 +2022,22 @@ mod tests {
         epsilon: f64,
     ) {
         let mut ad = AutoDiff::new();
-        let x = ad.var(points[0].0);
-        let y = ad.var(points[0].1);
+        let x = ad.var(points[0].0).unwrap();
+        let y = ad.var(points[0].1).unwrap();
         let f = build_fn(&mut ad, x, y);
 
         // Forward-mode: compile with order-1 symbolic partials
-        let mut cg_fwd = ad.compile_order(f, &[x, y], 1);
+        let mut cg_fwd = ad.compile_order(f, &[x, y], 1).unwrap();
 
         // Reverse-mode: compile primal only
-        let mut cg_rev = ad.compile_primal(f, &[x, y]);
+        let mut cg_rev = ad.compile_primal(f, &[x, y]).unwrap();
 
         for &(xv, yv) in points {
-            cg_fwd.eval(&[xv, yv]);
-            let fwd_dfdx = cg_fwd.partial(&[1, 0]);
-            let fwd_dfdy = cg_fwd.partial(&[0, 1]);
+            cg_fwd.eval(&[xv, yv]).unwrap();
+            let fwd_dfdx = cg_fwd.partial(&[1, 0]).unwrap();
+            let fwd_dfdy = cg_fwd.partial(&[0, 1]).unwrap();
 
-            cg_rev.eval(&[xv, yv]);
+            cg_rev.eval(&[xv, yv]).unwrap();
             let rev_grad = cg_rev.gradient();
 
             assert_relative_eq!(rev_grad[0], fwd_dfdx, epsilon = epsilon);
@@ -2144,12 +2169,12 @@ mod tests {
         epsilon: f64,
     ) {
         let mut ad = AutoDiff::new();
-        let x = ad.var(points[0]);
+        let x = ad.var(points[0]).unwrap();
         let f = build_fn(&mut ad, x);
 
-        let mut cg = ad.compile_primal(f, &[x]);
+        let mut cg = ad.compile_primal(f, &[x]).unwrap();
         for &xv in points {
-            cg.eval(&[xv]);
+            cg.eval(&[xv]).unwrap();
             let grad = cg.gradient();
             assert_relative_eq!(grad[0], expected_fn(xv), epsilon = epsilon);
         }
@@ -2315,12 +2340,12 @@ mod tests {
     #[test]
     fn test_reverse_gradient_add_2d() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.add(x, y);
 
-        let mut cg = ad.compile_primal(f, &[x, y]);
-        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+        let grad = cg.eval_gradient(&[2.0, 3.0]).unwrap();
         assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
         assert_relative_eq!(grad[1], 1.0, epsilon = 1e-12);
     }
@@ -2328,12 +2353,12 @@ mod tests {
     #[test]
     fn test_reverse_gradient_sub_2d() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.sub(x, y);
 
-        let mut cg = ad.compile_primal(f, &[x, y]);
-        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+        let grad = cg.eval_gradient(&[2.0, 3.0]).unwrap();
         assert_relative_eq!(grad[0], 1.0, epsilon = 1e-12);
         assert_relative_eq!(grad[1], -1.0, epsilon = 1e-12);
     }
@@ -2341,12 +2366,12 @@ mod tests {
     #[test]
     fn test_reverse_gradient_mul_2d() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
-        let mut cg = ad.compile_primal(f, &[x, y]);
-        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+        let grad = cg.eval_gradient(&[2.0, 3.0]).unwrap();
         assert_relative_eq!(grad[0], 3.0, epsilon = 1e-12); // df/dx = y
         assert_relative_eq!(grad[1], 2.0, epsilon = 1e-12); // df/dy = x
     }
@@ -2354,12 +2379,12 @@ mod tests {
     #[test]
     fn test_reverse_gradient_div_2d() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(6.0);
-        let y = ad.var(3.0);
+        let x = ad.var(6.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.div(x, y);
 
-        let mut cg = ad.compile_primal(f, &[x, y]);
-        let grad = cg.eval_gradient(&[6.0, 3.0]);
+        let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+        let grad = cg.eval_gradient(&[6.0, 3.0]).unwrap();
         assert_relative_eq!(grad[0], 1.0 / 3.0, epsilon = 1e-12);    // df/dx = 1/y
         assert_relative_eq!(grad[1], -6.0 / 9.0, epsilon = 1e-12);   // df/dy = -x/y²
     }
@@ -2367,12 +2392,12 @@ mod tests {
     #[test]
     fn test_reverse_gradient_pow_2d() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.pow(x, y);
 
-        let mut cg = ad.compile_primal(f, &[x, y]);
-        let grad = cg.eval_gradient(&[2.0, 3.0]);
+        let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+        let grad = cg.eval_gradient(&[2.0, 3.0]).unwrap();
         // df/dx = y * x^(y-1) = 3 * 4 = 12
         assert_relative_eq!(grad[0], 12.0, epsilon = 1e-10);
         // df/dy = x^y * ln(x) = 8 * ln(2)
@@ -2383,15 +2408,15 @@ mod tests {
     fn test_compile_primal_matches_compile() {
         // Verify compile_primal gives same value as compile
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
-        let mut cg_primal = ad.compile_primal(f, &[x, y]);
-        let mut cg_full = ad.compile(f, &[x, y], &[]);
+        let mut cg_primal = ad.compile_primal(f, &[x, y]).unwrap();
+        let mut cg_full = ad.compile(f, &[x, y], &[]).unwrap();
 
-        cg_primal.eval(&[2.0, 3.0]);
-        cg_full.eval(&[2.0, 3.0]);
+        cg_primal.eval(&[2.0, 3.0]).unwrap();
+        cg_full.eval(&[2.0, 3.0]).unwrap();
         assert_eq!(cg_primal.value(), cg_full.value());
     }
 }

@@ -232,10 +232,10 @@ impl GpuGraph {
         let slice = staging_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            tx.send(result).expect("internal: channel receiver dropped");
         });
         ctx.device.poll(wgpu::PollType::wait_indefinitely())?;
-        rx.recv().unwrap()?;
+        rx.recv().expect("internal: channel sender dropped")?;
 
         let data_raw = slice.get_mapped_range();
         let data: Vec<f32> = bytemuck::cast_slice(&data_raw).to_vec();

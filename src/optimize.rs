@@ -320,7 +320,8 @@ impl CseTable {
 /// Builds a CSE table from an existing computation graph.
 pub fn build_cse_table(world: &World, output: Var) -> CseTable {
     let mut table = CseTable::new();
-    let entities = topological_order(world, output.entity());
+    let entities = topological_order(world, output.entity())
+        .expect("optimize: cycle detected in computation graph");
 
     for &entity in &entities {
         let entity_ref = world.entity(entity);
@@ -354,7 +355,8 @@ pub fn build_cse_table(world: &World, output: Var) -> CseTable {
 /// Returns the number of duplicate operations that could be eliminated.
 pub fn count_cse_opportunities(world: &World, output: Var) -> usize {
     let mut signatures: HashMap<OpSignature, usize> = HashMap::new();
-    let entities = topological_order(world, output.entity());
+    let entities = topological_order(world, output.entity())
+        .expect("optimize: cycle detected in computation graph");
 
     for &entity in &entities {
         let entity_ref = world.entity(entity);
@@ -393,7 +395,7 @@ mod tests {
     #[test]
     fn test_simplify_add_zero() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
+        let x = ad.var(5.0).unwrap();
         let zero = ad.constant(0.0);
 
         // x + 0 = x
@@ -408,7 +410,7 @@ mod tests {
     #[test]
     fn test_simplify_mul_zero_one() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
+        let x = ad.var(5.0).unwrap();
         let zero = ad.constant(0.0);
         let one = ad.constant(1.0);
 
@@ -428,7 +430,7 @@ mod tests {
     #[test]
     fn test_simplify_sub_self() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(5.0);
+        let x = ad.var(5.0).unwrap();
 
         // x - x = 0
         let result = simplify_binary(ad.world(), BinaryOp::Sub, x.entity(), x.entity());
@@ -524,8 +526,8 @@ mod tests {
     #[test]
     fn test_count_cse_opportunities() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
 
         // Create duplicate expressions
         let xy1 = ad.mul(x, y);
@@ -539,7 +541,7 @@ mod tests {
     #[test]
     fn test_build_cse_table() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.square(x); // x * x
 
         let table = build_cse_table(ad.world(), y);

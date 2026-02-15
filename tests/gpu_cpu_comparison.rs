@@ -23,9 +23,9 @@ fn compare_unary(
     x_vals: &[f32],
 ) {
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
     let f = build(&mut ad, x);
-    let mut graph = ad.compile_primal(f, &[x]);
+    let mut graph = ad.compile_primal(f, &[x]).unwrap();
     let gpu_graph = ctx.prepare(&graph).unwrap();
 
     let results = gpu_graph.eval_batch(ctx, &[x_vals]).unwrap();
@@ -202,10 +202,10 @@ fn compare_binary(
     y_vals: &[f32],
 ) {
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
     let f = build(&mut ad, x, y);
-    let mut graph = ad.compile_primal(f, &[x, y]);
+    let mut graph = ad.compile_primal(f, &[x, y]).unwrap();
     let gpu_graph = ctx.prepare(&graph).unwrap();
 
     let results = gpu_graph.eval_batch(ctx, &[x_vals, y_vals]).unwrap();
@@ -299,13 +299,13 @@ fn gpu_cpu_complex_expression() {
     // f(x, y) = sin(x*y) + exp(x)
     let Some(ctx) = gpu() else { return };
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
     let xy = ad.mul(x, y);
     let sin_xy = ad.sin(xy);
     let exp_x = ad.exp(x);
     let f = ad.add(sin_xy, exp_x);
-    let mut graph = ad.compile_primal(f, &[x, y]);
+    let mut graph = ad.compile_primal(f, &[x, y]).unwrap();
     let gpu_graph = ctx.prepare(&graph).unwrap();
 
     let x_vals = vec![0.1, 0.5, 1.0, 2.0];
@@ -332,10 +332,10 @@ fn gpu_cpu_partials_two_inputs() {
     // f(x, y) = x*y, df/dx = y, df/dy = x
     let Some(ctx) = gpu() else { return };
     let mut ad = AutoDiff::new();
-    let x = ad.var(0.0);
-    let y = ad.var(0.0);
+    let x = ad.var(0.0).unwrap();
+    let y = ad.var(0.0).unwrap();
     let f = ad.mul(x, y);
-    let graph = ad.compile_order(f, &[x, y], 1);
+    let graph = ad.compile_order(f, &[x, y], 1).unwrap();
     let gpu_graph = ctx.prepare(&graph).unwrap();
 
     let x_vals = vec![1.0, 2.0, 3.0];

@@ -10,7 +10,7 @@ fn main() {
     let mut ad = AutoDiff::new();
 
     // Create input variable: x = 2
-    let x = ad.var(2.0);
+    let x = ad.var(2.0).unwrap();
 
     // Build computation graph: f(x) = x^2 + 3x + 1
     let x_squared = ad.square(x);
@@ -21,14 +21,14 @@ fn main() {
     let f = ad.add(sum1, one);
 
     // Evaluate f(2) = 4 + 6 + 1 = 11
-    let value = ad.eval(f);
+    let value = ad.eval(f).unwrap();
     println!("f(2) = {}", value);
 
     // Differentiate: f'(x) = 2x + 3
-    let dfdx = ad.differentiate(f, x);
-    println!("f'(2) = {} (expected 7)", ad.eval(dfdx));
+    let dfdx = ad.differentiate(f, x).unwrap();
+    println!("f'(2) = {} (expected 7)", ad.eval(dfdx).unwrap());
 
     // Second derivative: f''(x) = 2
-    let d2fdx2 = ad.differentiate(dfdx, x);
-    println!("f''(2) = {} (expected 2)", ad.eval(d2fdx2));
+    let d2fdx2 = ad.differentiate(dfdx, x).unwrap();
+    println!("f''(2) = {} (expected 2)", ad.eval(d2fdx2).unwrap());
 }

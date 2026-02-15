@@ -16,10 +16,10 @@ where
     AutodiffFn: Fn(F) -> F,
 {
     let mut ad = AutoDiff::new();
-    let x = ad.var(x_val);
+    let x = ad.var(x_val).unwrap();
     let f = bevy_fn(&mut ad, x);
-    let df = ad.differentiate(f, x);
-    let bevy_deriv = ad.eval(df);
+    let df = ad.differentiate(f, x).unwrap();
+    let bevy_deriv = ad.eval(df).unwrap();
 
     let x_ad = F::var(x_val);
     let result = autodiff_fn(x_ad);
@@ -197,11 +197,11 @@ fn compare_product_rule() {
     // d/dx(x * sin(x))
     for &x_val in &[0.5, 1.0, 2.0] {
         let mut ad = AutoDiff::new();
-        let x = ad.var(x_val);
+        let x = ad.var(x_val).unwrap();
         let sin_x = ad.sin(x);
         let f = ad.mul(x, sin_x);
-        let df = ad.differentiate(f, x);
-        let bevy_deriv = ad.eval(df);
+        let df = ad.differentiate(f, x).unwrap();
+        let bevy_deriv = ad.eval(df).unwrap();
 
         let x_ad = F::var(x_val);
         let result = x_ad * x_ad.sin();
@@ -216,11 +216,11 @@ fn compare_quotient_rule() {
     // d/dx(sin(x) / x)
     for &x_val in &[0.5, 1.0, 2.0] {
         let mut ad = AutoDiff::new();
-        let x = ad.var(x_val);
+        let x = ad.var(x_val).unwrap();
         let sin_x = ad.sin(x);
         let f = ad.div(sin_x, x);
-        let df = ad.differentiate(f, x);
-        let bevy_deriv = ad.eval(df);
+        let df = ad.differentiate(f, x).unwrap();
+        let bevy_deriv = ad.eval(df).unwrap();
 
         let x_ad = F::var(x_val);
         let result = x_ad.sin() / x_ad;
@@ -235,7 +235,7 @@ fn compare_polynomial() {
     // d/dx(x³ + 2x² + 3x + 4)
     for &x_val in &[0.0, 1.0, 2.0, -1.0] {
         let mut ad = AutoDiff::new();
-        let x = ad.var(x_val);
+        let x = ad.var(x_val).unwrap();
         let c2 = ad.constant(2.0);
         let c3 = ad.constant(3.0);
         let c4 = ad.constant(4.0);
@@ -247,8 +247,8 @@ fn compare_polynomial() {
         let s0 = ad.add(term1, c4);
         let s1 = ad.add(term2, s0);
         let f = ad.add(x3, s1);
-        let df = ad.differentiate(f, x);
-        let bevy_deriv = ad.eval(df);
+        let df = ad.differentiate(f, x).unwrap();
+        let bevy_deriv = ad.eval(df).unwrap();
 
         let x_ad = F::var(x_val);
         let result =
@@ -268,10 +268,10 @@ fn compare_powf() {
     // d/dx(x^2.5) = 2.5 * x^1.5
     for &x_val in &[0.5, 1.0, 2.0, 4.0] {
         let mut ad = AutoDiff::new();
-        let x = ad.var(x_val);
+        let x = ad.var(x_val).unwrap();
         let f = ad.powf(x, 2.5);
-        let df = ad.differentiate(f, x);
-        let bevy_deriv = ad.eval(df);
+        let df = ad.differentiate(f, x).unwrap();
+        let bevy_deriv = ad.eval(df).unwrap();
 
         let x_ad = F::var(x_val);
         let result = x_ad.powf(F::cst(2.5));

@@ -68,7 +68,7 @@ pub fn visit_topological<F>(world: &World, output: Entity, mut visitor: F)
 where
     F: FnMut(Entity, usize),
 {
-    let order = crate::graph::topological_order(world, output);
+    let order = crate::graph::topological_order(world, output).expect("cycle detected in computation graph");
     let depth_map: std::collections::HashMap<Entity, usize> = compute_depths(world, output);
 
     for entity in order {
@@ -106,7 +106,7 @@ fn compute_depths(world: &World, output: Entity) -> std::collections::HashMap<En
 
 /// Collects all unique entities reachable from an output.
 pub fn collect_all_entities(world: &World, output: Entity) -> Vec<Entity> {
-    crate::graph::topological_order(world, output)
+    crate::graph::topological_order(world, output).expect("cycle detected in computation graph")
 }
 
 /// Finds the maximum depth of the computation graph.
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn test_get_unary_input() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.sin(x);
 
         let input = get_unary_input(ad.world(), y.entity());
@@ -133,8 +133,8 @@ mod tests {
     #[test]
     fn test_get_binary_inputs() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
-        let y = ad.var(3.0);
+        let x = ad.var(2.0).unwrap();
+        let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
         let inputs = get_binary_inputs(ad.world(), f.entity());
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn test_is_leaf() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let c = ad.constant(1.0);
         let y = ad.square(x);
 
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_get_value() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.square(x);
 
         assert_eq!(get_value(ad.world(), x.entity()), Some(2.0));
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn test_get_operation_name() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let s = ad.sin(x);
         let y = ad.mul(x, x);
 
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn test_max_depth() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.square(x);
         let z = ad.sin(y);
 
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn test_free_functions_on_graph() {
         let mut ad = AutoDiff::new();
-        let x = ad.var(2.0);
+        let x = ad.var(2.0).unwrap();
         let y = ad.square(x);
 
         assert!(is_leaf(ad.world(), x.entity()));
