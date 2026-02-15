@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-15
+
+### Added
+
+- WGSL code generation: `CompiledGraph::to_wgsl(func_name)` emits a standalone WGSL struct + function from any compiled graph. No `wgpu` dependency required — pure string generation, embeddable in custom compute or fragment shaders.
+
+### Changed
+
+- Updated `wgpu` dependency from 27 to 28
+- Updated MSRV from 1.89 to 1.92
+
 ## [0.4.0] - 2026-02-14
 
 ### Added
@@ -81,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Oracle validation against the `autodiff` crate
 - Operator overloading via `with_context`
 
+[0.5.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.1.0...v0.2.0

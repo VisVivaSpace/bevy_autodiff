@@ -63,6 +63,7 @@
 //! assert_eq!(grad, &[2.0, 4.0]); // [2x, 2y]
 //! ```
 
+pub mod codegen;
 pub mod compiled;
 pub mod components;
 pub mod context;

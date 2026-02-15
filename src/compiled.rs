@@ -167,19 +167,16 @@ impl CompiledGraph {
     }
 
     /// Returns a reference to the node array.
-    #[cfg(feature = "wgpu")]
     pub(crate) fn nodes(&self) -> &[NodeOp] {
         &self.nodes
     }
 
     /// Returns the index of the primary output node.
-    #[cfg(feature = "wgpu")]
     pub(crate) fn output_index(&self) -> usize {
         self.output_index
     }
 
     /// Returns the compiled partial outputs as (multi_index, node_index) pairs.
-    #[cfg(feature = "wgpu")]
     pub(crate) fn partial_outputs(&self) -> &[(Vec<usize>, usize)] {
         &self.partial_outputs
     }

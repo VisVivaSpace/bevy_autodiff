@@ -24,7 +24,7 @@ Use `bevy_autodiff` when you need:
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.4"
+bevy_autodiff = "0.5"
 ```
 
 ## Core API
@@ -115,11 +115,20 @@ let values = results.values();           // &[f32]
 let dfdx = results.partials(&[1, 0]);    // Option<&[f32]>
 ```
 
+### WGSL code generation (no feature required)
+
+```rust
+let wgsl = compiled_graph.to_wgsl("my_func");
+// Returns a WGSL struct + function: embeddable in any shader
+```
+
+Generates a standalone WGSL function from a compiled graph. All 21 operations map to direct WGSL expressions (no interpreter loop). The output is a struct definition (`{FuncName}Output` with `value` + partial derivative fields) and a pure function. Does not require the `wgpu` feature — pure string generation.
+
 ## Key Types
 
 - `AutoDiff` -- the computation graph context (wraps a Bevy ECS `World`)
 - `Var` -- lightweight `Copy` handle to a graph entity
-- `CompiledGraph` -- flattened graph for fast evaluation and gradient computation
+- `CompiledGraph` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation
 - `NodeOp` -- single operation in the compiled flat array
 - `GpuContext` -- holds wgpu device, queue, and compute pipeline (feature `wgpu`)
 - `GpuGraph` -- prepared GPU buffers for a compiled graph (feature `wgpu`)

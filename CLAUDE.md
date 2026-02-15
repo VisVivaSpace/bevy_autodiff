@@ -118,6 +118,7 @@ src/
 ├── context.rs          # AutoDiff struct, differentiate(), compile(), main API
 ├── var.rs              # Var handle type
 ├── compiled.rs         # CompiledGraph, NodeOp, flatten_graph
+├── codegen.rs          # WGSL code generation: CompiledGraph::to_wgsl()
 ├── components/         # ECS components
 │   ├── variable.rs     # Variable markers (IsInput, IsConstant, Value, Dependencies)
 │   └── operations.rs   # UnaryOp, BinaryOp, UnaryInput, BinaryInputs

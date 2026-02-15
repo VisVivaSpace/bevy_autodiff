@@ -20,7 +20,7 @@ Variables are ECS entities, operations are components, and derivatives are compu
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.4"
+bevy_autodiff = "0.5"
 ```
 
 ## Quick Start
@@ -191,6 +191,44 @@ let dfdx = results.partials(&[1, 0]);   // df/dx for each sample
 
 The GPU path compiles the graph to f32 (the CPU path uses f64). A WGSL interpreter kernel dispatches one GPU thread per sample with zero warp divergence.
 
+## WGSL Code Generation
+
+Generate standalone WGSL functions from compiled graphs — no `wgpu` dependency required. The output is a struct + function that can be embedded in any WGSL shader (custom compute kernels, fragment shaders, procedural generation).
+
+```rust
+use bevy_autodiff::AutoDiff;
+
+let mut ad = AutoDiff::new();
+let x = ad.var(0.0);
+let y = ad.var(0.0);
+let f = ad.add(ad.sin(ad.mul(x, y)), ad.exp(x));
+let graph = ad.compile_order(f, &[x, y], 1);
+
+let wgsl = graph.to_wgsl("my_func");
+println!("{wgsl}");
+```
+
+This emits a self-contained WGSL snippet with a result struct containing the primal value and each partial derivative, and a function that evaluates the graph using direct WGSL expressions (no interpreter loop):
+
+```wgsl
+struct MyFuncOutput {
+    value: f32,
+    d1_0: f32,   // df/dx
+    d0_1: f32,   // df/dy
+}
+
+fn my_func(p0: f32, p1: f32) -> MyFuncOutput {
+    let v0 = p0;
+    let v1 = p1;
+    let v2 = v0 * v1;
+    let v3 = sin(v2);
+    // ... derivative nodes ...
+    return MyFuncOutput(v3, ...);
+}
+```
+
+Complements the interpreter-based GPU dispatch: the interpreter is a self-contained "eval at N points" path, while codegen produces an embeddable function for use inside other shaders.
+
 ## How It Works
 
 ### Symbolic Graph Differentiation
@@ -267,15 +305,15 @@ RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test \
   --features std_autodiff_tests                     # Oracle: Enzyme
 ```
 
-The test suite (339 tests with `--features wgpu`) validates correctness through:
+The test suite (354 tests with `--features wgpu`) validates correctness through:
 
 | Test type | What it validates | Count |
 |-----------|-------------------|-------|
-| Unit tests | Graph construction, all 21 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass | 261 |
+| Unit tests | Graph construction, all 21 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen | 275 |
 | GPU unit tests | NodeOp conversion, GPU dispatch, buffer readback, error paths | 15 |
 | Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
 | Oracle (GPU vs CPU) | GPU f32 results against CPU f64 for all ops, compositions, partials, batch sizes | 27 |
-| Doc-tests | Code examples in documentation | 14 |
+| Doc-tests | Code examples in documentation | 15 |
 | Cross-validation | Reverse-mode gradient matches forward-mode symbolic partials | 8 (within unit) |
 
 ## Documentation
