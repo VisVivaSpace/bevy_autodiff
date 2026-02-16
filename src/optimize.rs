@@ -95,7 +95,7 @@ pub fn simplify_binary(
                 return SimplifyResult::Constant(l * r);
             }
         }
-        BinaryOp::Div => {
+        BinaryOp::Div | BinaryOp::DivLog => {
             // x / 1 = x
             if right_const == Some(1.0) {
                 return SimplifyResult::UseLeft;
@@ -125,23 +125,6 @@ pub fn simplify_binary(
             if let (Some(l), Some(r)) = (left_const, right_const) {
                 return SimplifyResult::Constant(l.powf(r));
             }
-        }
-        BinaryOp::DivLog => {
-            // x / 1 = x
-            if right_const == Some(1.0) {
-                return SimplifyResult::UseLeft;
-            }
-            // 0 / x = 0 (when x is constant and non-zero)
-            if left_const == Some(0.0)
-                && let Some(r) = right_const
-                    && r != 0.0 {
-                        return SimplifyResult::Constant(0.0);
-                    }
-            // Fold constants (avoid division by zero)
-            if let (Some(l), Some(r)) = (left_const, right_const)
-                && r != 0.0 {
-                    return SimplifyResult::Constant(l / r);
-                }
         }
     }
 

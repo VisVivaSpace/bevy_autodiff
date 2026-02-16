@@ -516,7 +516,10 @@ mod tests {
     /// Builds a_x = -mu * x / r³ and compiles at order 2.
     /// Compares f64 eval, f32 simulation, and analytical Hessian to determine
     /// whether second-order WGSL errors are due to codegen bugs or f32 precision.
+    ///
+    /// Run with: `cargo test second_order_two_body_f32_diagnostic -- --ignored --nocapture`
     #[test]
+    #[ignore = "diagnostic test with verbose output — not a regression test"]
     fn second_order_two_body_f32_diagnostic() {
         use crate::AutoDiff;
 

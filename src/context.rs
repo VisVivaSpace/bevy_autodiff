@@ -215,6 +215,11 @@ impl AutoDiff {
     /// cancellation in f32 for second-order and higher derivatives, making it
     /// suitable for GPU evaluation via [`to_wgsl()`](crate::compiled::CompiledGraph::to_wgsl).
     ///
+    /// **Note:** The intermediate `da/a` sub-expressions use standard division. This
+    /// means f32 stability is guaranteed for second-order derivatives but may degrade
+    /// at third order and above. For the common case (e.g., gravitational Hessians),
+    /// second-order is the target and this is sufficient.
+    ///
     /// **Requirement:** `base > 0`. Produces NaN if the base is zero or negative.
     pub fn pow_log(&mut self, base: Var, exponent: Var) -> Var {
         self.binary_op(BinaryOp::PowLog, base, exponent, |x, y| x.powf(y))
@@ -226,6 +231,9 @@ impl AutoDiff {
     /// how symbolic derivatives are computed: this uses `d(a/b) = (a/b) · (da/a - db/b)`
     /// instead of the quotient rule `(da·b - a·db) / b²`. The logarithmic form avoids
     /// catastrophic cancellation in f32 for second-order and higher derivatives.
+    ///
+    /// **Note:** The intermediate `da/a` and `db/b` sub-expressions use standard
+    /// division. See [`pow_log`](Self::pow_log) for details on higher-order limits.
     ///
     /// **Requirement:** both `a` and `b` must be nonzero. Produces NaN otherwise.
     pub fn div_log(&mut self, a: Var, b: Var) -> Var {

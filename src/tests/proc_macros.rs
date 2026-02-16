@@ -1102,6 +1102,12 @@ fn stable_power_div(x: Var, y: Var) -> Var {
     pow(x, y) + x / y
 }
 
+/// stable_derivatives attribute: powi/powf method syntax routes to _log variants
+#[crate::autodiff(stable_derivatives)]
+fn stable_method_powi_powf(x: Var) -> Var {
+    x.powi(3) + x.powf(0.5)
+}
+
 #[test]
 fn test_autodiff_pow_log() {
     let mut ad = AutoDiff::new();
@@ -1143,4 +1149,20 @@ fn test_autodiff_stable_derivatives() {
     let f = stable_power_div(&mut ad, x, y);
     let expected = 8.0 + 2.0 / 3.0;
     assert!((ad.eval(f).unwrap() - expected).abs() < 1e-10);
+}
+
+#[test]
+fn test_autodiff_stable_derivatives_powi_powf() {
+    let mut ad = AutoDiff::new();
+    let x = ad.var(2.0).unwrap();
+
+    // x.powi(3) + x.powf(0.5) = 8 + sqrt(2) ≈ 9.4142
+    let f = stable_method_powi_powf(&mut ad, x);
+    let expected = 8.0 + 2.0_f64.sqrt();
+    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-10);
+
+    // Derivative: 3x^2 + 0.5*x^(-0.5) = 12 + 0.5/sqrt(2) ≈ 12.3536
+    let deriv = ad.derivative(f, x, 1).unwrap();
+    let expected_deriv = 12.0 + 0.5 * 2.0_f64.powf(-0.5);
+    assert!((deriv - expected_deriv).abs() < 1e-10);
 }

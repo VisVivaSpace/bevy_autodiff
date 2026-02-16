@@ -88,8 +88,16 @@ pub fn autodiff(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(item as ItemFn);
 
     // Parse attribute for stable_derivatives flag
-    let attr_str = attr.to_string();
-    let stable_derivatives = attr_str.contains("stable_derivatives");
+    let stable_derivatives = if attr.is_empty() {
+        false
+    } else {
+        let ident: syn::Ident = syn::parse(attr)
+            .expect("expected `stable_derivatives`");
+        if ident != "stable_derivatives" {
+            panic!("unknown autodiff attribute: `{ident}`. Expected `stable_derivatives`.");
+        }
+        true
+    };
 
     // Add `ad: &mut AutoDiff` as first parameter
     let ad_param: FnArg = parse_quote!(ad: &mut AutoDiff);
@@ -360,6 +368,26 @@ impl ExprTransformer {
             return parse_quote!({
                 let #recv_temp = #receiver;
                 ad.#target(#recv_temp, #exp_arg)
+            });
+        }
+
+        // Two-Var method calls: x.pow(y), x.pow_log(y), x.div_log(y)
+        if (method_name == "pow" || method_name == "pow_log" || method_name == "div_log")
+            && expr.args.len() == 1
+        {
+            let arg = self.transform_expr(&expr.args[0]);
+            let arg_temp = self.next_temp();
+            let target_method = match method_name.as_str() {
+                "pow" if self.stable_derivatives => "pow_log",
+                "div_log" => "div_log",
+                "pow_log" => "pow_log",
+                _ => &method_name,
+            };
+            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
+            return parse_quote!({
+                let #recv_temp = #receiver;
+                let #arg_temp = #arg;
+                ad.#target(#recv_temp, #arg_temp)
             });
         }
 
