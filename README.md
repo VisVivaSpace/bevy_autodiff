@@ -6,11 +6,11 @@ Write normal Rust functions, get exact derivatives — including gradients, Jaco
 
 ## Why bevy_autodiff?
 
-**Arbitrary-order exact derivatives.** Most Rust AD crates provide first-order gradients. `bevy_autodiff` computes exact partial derivatives to any order — second-order Hessians, third-order tensors, mixed partials — via successive symbolic differentiation. No finite differences, no truncation.
+**Arbitrary-order exact derivatives.** Most automatic differentiation libraries provide first-order gradients. `bevy_autodiff` computes exact partial derivatives to any order — second-order Hessians, third-order tensors, mixed partials — via successive symbolic differentiation. No finite differences, no truncation.
 
 **GPU batch evaluation.** Evaluate a compiled function and all its derivatives at millions of input points in parallel on the GPU. Generate standalone WGSL shader functions from any compiled graph. As far as we know, no other Rust AD crate offers either capability.
 
-**Data-oriented design.** Most AD libraries represent computation graphs as opaque internal structures with behavior baked in. `bevy_autodiff` takes a different approach: the graph *is* ECS data. Variables are entities, operations are components, and differentiation is a pure traversal that reads the graph and writes new entities. Data is separated from code at every level — a direct application of [data-oriented programming](https://en.wikipedia.org/wiki/Data-oriented_design) to automatic differentiation. The compiled output (`CompiledGraph`) is a flat, cache-friendly array with no entity references or indirection.
+**Data-oriented design.** Most AD libraries represent computation graphs as opaque internal structures with behavior baked in. `bevy_autodiff` takes a different approach: the graph *is* ECS data. Variables are entities, operations are components, and differentiation is a pure traversal that reads the graph and writes new entities. Data is separated from code at every level — a direct application of data-oriented programming to automatic differentiation. The compiled output (`CompiledGraph`) is a flat, cache-friendly array with no entity references or indirection.
 
 This design makes the graph open and extensible: adding new metadata to nodes is just adding a new component. It also means `CompiledGraph` is a Bevy `Component` and `Resource` out of the box — compiled graphs live directly in your app's ECS, evaluated in parallel with `par_iter_mut()`.
 
