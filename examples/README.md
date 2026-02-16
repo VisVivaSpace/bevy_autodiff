@@ -6,6 +6,8 @@
 cargo run --example <name>
 ```
 
+> **Note:** The examples use the builder API for clarity. For ergonomic function definition, see `#[autodiff]` and `expr!` in the [Usage Guide](../docs/usage_guide.md).
+
 ## Overview
 
 ### basic
@@ -76,6 +78,14 @@ Requires the `rkf78` dev-dependency.
 
 ```bash
 cargo run --example stm_propagation
+```
+
+### bevy_par_eval
+
+Parallel evaluation using Bevy's ECS scheduler. Demonstrates the shallow Bevy integration pattern: build a graph with `AutoDiff`, compile once, clone to 1000 entities as a `Component`, then evaluate all graphs in parallel via `par_iter_mut()`.
+
+```bash
+cargo run --example bevy_par_eval
 ```
 
 ### gpu_batch

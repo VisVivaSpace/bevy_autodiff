@@ -24,54 +24,73 @@ Use `bevy_autodiff` when you need:
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.6"
+bevy_autodiff = "0.7"
 ```
 
 ## Core API
 
-### Building a computation graph
+Three ways to build computation graphs (see [Usage Guide](docs/usage_guide.md) for full details):
+
+### `#[autodiff]` proc-macro (recommended)
 
 ```rust
-use bevy_autodiff::AutoDiff;
+use bevy_autodiff::{AutoDiff, Var, autodiff};
+
+#[autodiff]
+fn rosenbrock(x: Var, y: Var) -> Var {
+    let a = 1.0;
+    let b = 100.0;
+    (a - x) * (a - x) + b * (y - x * x) * (y - x * x)
+}
 
 let mut ad = AutoDiff::new();
-let x = ad.var(2.0);       // input variable
-let y = ad.var(3.0);       // input variable
-let c = ad.constant(5.0);  // constant (derivative = 0)
-
-// Operations return Var handles
-let f = ad.add(ad.mul(x, y), c);  // f = x*y + 5
-assert_eq!(ad.eval(f), 11.0);
+let x = ad.var(1.0).unwrap();
+let y = ad.var(1.0).unwrap();
+let f = rosenbrock(&mut ad, x, y);
 ```
 
-### Symbolic differentiation
+Requires `features = ["proc-macros"]`. Use `#[autodiff(stable_derivatives)]` to route `pow`/`div` through logarithmic variants for f32-stable second-order derivatives.
+
+### `expr!` macro
 
 ```rust
-let dfdx = ad.differentiate(f, x);  // creates new graph entities
-assert_eq!(ad.eval(dfdx), 3.0);     // df/dx = y = 3
+use bevy_autodiff::{AutoDiff, expr};
 
-// Higher-order via successive differentiation
-let d2fdxdy = ad.differentiate(dfdx, y);
-assert_eq!(ad.eval(d2fdxdy), 1.0);  // d²f/dxdy = 1
+let mut ad = AutoDiff::new();
+let x = ad.var(2.0).unwrap();
+let y = ad.var(3.0).unwrap();
+let f = expr!(ad, x * x + x * y);
+```
+
+No feature required. Supports `+`, `-`, `*`, `/`, unary `-`, transcendental functions, and `pow`.
+
+### Builder API
+
+```rust
+let mut ad = AutoDiff::new();
+let x = ad.var(2.0).unwrap();
+let y = ad.var(3.0).unwrap();
+let c = ad.constant(5.0);
+let f = ad.add(ad.mul(x, y), c);  // f = x*y + 5
 ```
 
 ### Reverse-mode gradient (recommended for first-order)
 
 ```rust
-let mut cg = ad.compile_primal(f, &[x, y]);
-cg.eval(&[2.0, 3.0]);
+let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
+cg.eval(&[2.0, 3.0]).unwrap();
 let grad = cg.gradient().to_vec();  // [df/dx, df/dy] = [3.0, 2.0]
 
 // Re-evaluate at new point without recompiling
-cg.eval(&[4.0, 5.0]);
+cg.eval(&[4.0, 5.0]).unwrap();
 let grad = cg.gradient().to_vec();  // [5.0, 4.0]
 ```
 
 ### Compiled higher-order derivatives
 
 ```rust
-let mut cg = ad.compile_order(f, &[x, y], 2);
-cg.eval(&[2.0, 3.0]);
+let mut cg = ad.compile_order(f, &[x, y], 2).unwrap();
+cg.eval(&[2.0, 3.0]).unwrap();
 let dfdx = cg.partial(&[1, 0]);     // first partial w.r.t. x
 let d2fdxdy = cg.partial(&[1, 1]);  // mixed second partial
 ```
@@ -106,7 +125,7 @@ All operations are methods on `AutoDiff`:
 ### GPU batch evaluation (requires `wgpu` feature)
 
 ```toml
-bevy_autodiff = { version = "0.6", features = ["wgpu"] }
+bevy_autodiff = { version = "0.7", features = ["wgpu"] }
 ```
 
 ```rust
@@ -132,10 +151,10 @@ Generates a standalone WGSL function from a compiled graph. All 23 operations ma
 
 - `AutoDiff` -- the computation graph context (wraps a Bevy ECS `World`)
 - `Var` -- lightweight `Copy` handle to a graph entity
-- `CompiledGraph` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation
+- `CompiledGraph` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation. Derives `Clone`, `Component`, `Resource` for Bevy integration.
 - `NodeOp` -- single operation in the compiled flat array
-- `GpuContext` -- holds wgpu device, queue, and compute pipeline (feature `wgpu`)
-- `GpuGraph` -- prepared GPU buffers for a compiled graph (feature `wgpu`)
+- `GpuContext` -- holds wgpu device, queue, and compute pipeline (feature `wgpu`). Derives `Resource`.
+- `GpuGraph` -- prepared GPU buffers for a compiled graph (feature `wgpu`). Derives `Component`, `Resource`.
 - `GpuResults` -- GPU evaluation results with values and partials (feature `wgpu`)
 
 ## Limitations

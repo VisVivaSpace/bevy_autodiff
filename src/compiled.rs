@@ -53,6 +53,13 @@ pub enum NodeOp {
 ///   compile method), use [`eval`](Self::eval) + [`gradient`](Self::gradient) to
 ///   compute the full gradient via a single backward pass. Cost is independent
 ///   of the number of inputs.
+///
+/// # Bevy integration
+///
+/// `CompiledGraph` derives [`Clone`], [`bevy_ecs::component::Component`], and
+/// [`bevy_ecs::resource::Resource`]. Attach cloned graphs to entities and use
+/// `Query::par_iter_mut()` for parallel evaluation across Bevy's `ComputeTaskPool`.
+#[derive(Clone, bevy_ecs::component::Component, bevy_ecs::resource::Resource)]
 pub struct CompiledGraph {
     nodes: Vec<NodeOp>,
     num_inputs: usize,
@@ -835,5 +842,43 @@ mod tests {
         let grad = cg.gradient_of(2);
         assert_relative_eq!(grad[0], 5.0, epsilon = 1e-12); // d(x*y)/dx = y
         assert_relative_eq!(grad[1], 3.0, epsilon = 1e-12); // d(x*y)/dy = x
+    }
+
+    #[test]
+    fn test_compiled_graph_clone_independent() {
+        // Clone produces independent evaluation state
+        let mut ad = crate::AutoDiff::new();
+        let x = ad.var(0.0).unwrap();
+        let y = ad.var(0.0).unwrap();
+        let x2 = ad.square(x);
+        let xy = ad.mul(x, y);
+        let f = ad.add(x2, xy);
+        let template = ad.compile_primal(f, &[x, y]).unwrap();
+
+        let mut cg1 = template.clone();
+        let mut cg2 = template.clone();
+
+        cg1.eval(&[1.0, 2.0]).unwrap();
+        cg2.eval(&[3.0, 4.0]).unwrap();
+
+        // Values are independent
+        assert_relative_eq!(cg1.value(), 3.0, epsilon = 1e-12); // 1 + 2
+        assert_relative_eq!(cg2.value(), 21.0, epsilon = 1e-12); // 9 + 12
+    }
+
+    #[test]
+    fn test_compiled_graph_bevy_trait_bounds() {
+        // Compile-time assertion: CompiledGraph can be used as Component and Resource
+        fn assert_component<T: bevy_ecs::component::Component>() {}
+        fn assert_resource<T: bevy_ecs::resource::Resource>() {}
+        fn assert_clone<T: Clone>() {}
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_component::<CompiledGraph>();
+        assert_resource::<CompiledGraph>();
+        assert_clone::<CompiledGraph>();
+        assert_send::<CompiledGraph>();
+        assert_sync::<CompiledGraph>();
     }
 }

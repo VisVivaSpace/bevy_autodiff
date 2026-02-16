@@ -161,4 +161,21 @@ fn _assert_send_sync() {
     // Handle type
     assert_send::<Var>();
     assert_sync::<Var>();
+
+    // Compiled graph (derives Component + Resource)
+    assert_send::<CompiledGraph>();
+    assert_sync::<CompiledGraph>();
+}
+
+// GPU types are Send + Sync (required for Bevy Resource/Component)
+#[cfg(feature = "wgpu")]
+#[allow(dead_code)]
+fn _assert_gpu_send_sync() {
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    assert_send::<gpu::GpuContext>();
+    assert_sync::<gpu::GpuContext>();
+    assert_send::<gpu::GpuGraph>();
+    assert_sync::<gpu::GpuGraph>();
 }

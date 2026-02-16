@@ -26,6 +26,10 @@ struct Params {
 ///
 /// Created by [`GpuContext::prepare`]. Holds the translated node array
 /// and output index mapping. Reusable across multiple [`eval_batch`](Self::eval_batch) calls.
+///
+/// Derives [`bevy_ecs::component::Component`] and [`bevy_ecs::resource::Resource`]
+/// for use in Bevy ECS.
+#[derive(bevy_ecs::component::Component, bevy_ecs::resource::Resource)]
 pub struct GpuGraph {
     nodes_buffer: wgpu::Buffer,
     output_indices_buffer: wgpu::Buffer,
@@ -487,5 +491,22 @@ mod tests {
         assert!((r1.values()[1] - 1.0_f32.sin()).abs() < 1e-5);
         assert!((r2.values()[0] - 2.0_f32.sin()).abs() < 1e-5);
         assert!((r2.values()[1] - 3.0_f32.sin()).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_gpu_types_bevy_trait_bounds() {
+        fn assert_resource<T: bevy_ecs::resource::Resource>() {}
+        fn assert_component<T: bevy_ecs::component::Component>() {}
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_resource::<GpuContext>();
+        assert_send::<GpuContext>();
+        assert_sync::<GpuContext>();
+
+        assert_component::<GpuGraph>();
+        assert_resource::<GpuGraph>();
+        assert_send::<GpuGraph>();
+        assert_sync::<GpuGraph>();
     }
 }

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Bevy integration: `CompiledGraph` derives `Clone`, `Component`, and `Resource` for direct use in Bevy applications
+- `GpuContext` derives `Resource`, `GpuGraph` derives `Component` and `Resource`
+- `bevy_par_eval` example demonstrating parallel evaluation via `par_iter_mut()`
+- Send+Sync compile-time assertions for `CompiledGraph`, `GpuContext`, and `GpuGraph`
+
 ## [0.6.0] - 2026-02-15
 
 ### Added

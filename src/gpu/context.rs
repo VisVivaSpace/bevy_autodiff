@@ -7,6 +7,9 @@ use super::error::GpuError;
 /// Created once and reused across multiple [`GpuGraph`](super::graph::GpuGraph) evaluations.
 /// The compute pipeline uses an interpreter-style WGSL shader that evaluates
 /// any compiled computation graph.
+///
+/// Derives [`bevy_ecs::resource::Resource`] for use as a Bevy singleton resource.
+#[derive(bevy_ecs::resource::Resource)]
 pub struct GpuContext {
     pub(super) device: wgpu::Device,
     pub(super) queue: wgpu::Queue,

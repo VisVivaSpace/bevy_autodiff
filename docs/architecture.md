@@ -125,3 +125,23 @@ During symbolic differentiation, the `smart_*` helpers prevent graph bloat:
 - `smart_sub(a, b)`: if `b` is constant 0, return `a`; if `a` is constant 0, negate `b`
 
 These deliberately deviate from IEEE 754 (where `0 * NaN = NaN`) because in symbolic differentiation, a zero derivative term is structurally zero regardless of the other factor's value. This prevents NaN poisoning the derivative graph when subexpressions hit domain boundaries.
+
+## Bevy Integration
+
+`CompiledGraph` derives `Clone`, `Component`, and `Resource`, enabling direct use in a Bevy application's ECS. The integration follows a "shallow" pattern:
+
+**Graph construction** happens in `AutoDiff`'s private `World`. This isolates the computation graph from the application's ECS — no contention, no component pollution, no waiting on unrelated systems.
+
+**Compiled evaluation** crosses into the app's ECS via `CompiledGraph` as a `Component`. Each entity gets its own clone with independent evaluation state (`values[]`, `adjoints[]`, `gradient_buf[]`).
+
+**Parallel evaluation** uses Bevy's `ComputeTaskPool` via `par_iter_mut()`. Since `eval(&mut self)` takes exclusive mutable access, the scheduler can safely distribute evaluation across threads:
+
+```
+AutoDiff (private World)           App World (Bevy scheduler)
+  |                                  |
+  |-- build graph                    |-- spawn entities with CompiledGraph
+  |-- compile() → CompiledGraph      |-- par_iter_mut() → parallel eval()
+  |                                  |-- gradient() per entity
+```
+
+**GPU types**: `GpuContext` derives `Resource` (singleton device/queue/pipeline). `GpuGraph` derives `Component` and `Resource` (per-graph GPU buffers). `GpuResults` has no derives — it's an ephemeral return value.
