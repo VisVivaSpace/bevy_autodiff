@@ -132,12 +132,11 @@ src/
 │   ├── error.rs        # GpuError enum
 │   ├── types.rs        # GpuNodeOp, NodeOp→GPU conversion
 │   └── shader.wgsl     # WGSL interpreter compute kernel
+├── codegen.rs          # WGSL code generation (to_wgsl)
 ├── debug.rs            # Graph visualization (DOT format)
 ├── error.rs            # Error types
 ├── macros.rs           # expr! macro
-├── optimize.rs         # CSE detection, simplification
 ├── ops.rs              # Operator overloading (Add, Mul, etc.)
-└── util.rs             # Math utilities (factorial, binomial)
 ```
 
 ## Workflow Instructions
@@ -158,7 +157,7 @@ src/
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
 thiserror = "2"
-bevy_autodiff-macros = { version = "0.2.0", path = "./bevy_autodiff-macros", optional = true }
+bevy_autodiff-macros = { version = "0.2.1", path = "./bevy_autodiff-macros", optional = true }
 wgpu = { version = "28", optional = true }
 bytemuck = { version = "1.25", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }

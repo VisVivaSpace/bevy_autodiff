@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-02-15
+## [0.7.0] - 2026-02-16
 
 ### Added
 
@@ -15,6 +15,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GpuContext` derives `Resource`, `GpuGraph` derives `Component` and `Resource`
 - `bevy_par_eval` example demonstrating parallel evaluation via `par_iter_mut()`
 - Send+Sync compile-time assertions for `CompiledGraph`, `GpuContext`, and `GpuGraph`
+- `MultiIndexLengthMismatch` error variant for `partial()` validation
+- `Clone` derive on `AutoDiffError`
+- `PartialEq` derive on `NodeOp`
+- `Display` impl on `Var`
+- Custom `Debug` impl on `CompiledGraph` (shows node count, not all data)
+- `#[must_use]` on all graph-building methods
+- `debug_assert!` on `value()`/`partial()`/`gradient()` if called before `eval()`
+- `powi`, `powf`, `powi_log`, `powf_log` support in `expr!` macro
+- "Why bevy_autodiff?" section in README
+
+### Fixed
+
+- `expr!` macro: `a - b - c` now correctly left-associates (was right-associative, giving `a - (b - c)`)
+- `expr!` macro: `a / b / c` now correctly left-associates (was right-associative)
+- `input_index()`, `set_inputs()`, `partial()` now return `Result` instead of panicking
+- Proc-macro error handling: `panic!()` replaced with `syn::Error` for proper compile errors
+- `validate_graph()` no longer panics on cycle detection (returns `Result`)
+- Validation assertions added to `orbital_mechanics` and `gpu_batch` examples
+- Fixed missing `.unwrap()` calls in README and usage guide code examples
+- Fixed "Taylor coefficients" terminology in usage guide
+
+### Changed
+
+- **BREAKING:** Reduced public API surface — removed re-exports of internal types (`BinaryInputs`, `UnaryInput`, graph traversal helpers, optimizer utilities, free functions from `ops`)
+- **BREAKING:** Added `#[non_exhaustive]` to `UnaryOp`, `BinaryOp`, and `NodeOp`
+- **BREAKING:** `input_index()`, `set_inputs()`, `partial()` return `Result` instead of panicking
+- `Dependencies.mask` is now `pub(crate)`
+- `generate_multi_indices` is now `pub(crate)`
+- Removed unused `optimize` and `util` modules (dead code)
+- `cargo fmt` applied across entire codebase
 
 ## [0.6.0] - 2026-02-15
 

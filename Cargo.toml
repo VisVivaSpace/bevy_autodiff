@@ -6,7 +6,7 @@ rust-version = "1.92"
 authors = ["Nathan Strange <info@visviva.space>"]
 description = "Automatic differentiation using Bevy ECS as computation graph"
 license = "MIT"
-repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
+repository = "https://github.com/VisVivaSpace/bevy_autodiff"
 homepage = "https://github.com/VisVivaSpace/bevy_autodiff"
 documentation = "https://docs.rs/bevy_autodiff"
 readme = "README.md"
@@ -18,7 +18,7 @@ exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
 thiserror = "2"
-bevy_autodiff-macros = { version = "0.2.0", path = "./bevy_autodiff-macros", optional = true }
+bevy_autodiff-macros = { version = "0.2.1", path = "./bevy_autodiff-macros", optional = true }
 wgpu = { version = "28", optional = true }
 bytemuck = { version = "1.25", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }

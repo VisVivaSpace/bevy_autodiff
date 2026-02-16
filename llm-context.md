@@ -91,8 +91,8 @@ let grad = cg.gradient().to_vec();  // [5.0, 4.0]
 ```rust
 let mut cg = ad.compile_order(f, &[x, y], 2).unwrap();
 cg.eval(&[2.0, 3.0]).unwrap();
-let dfdx = cg.partial(&[1, 0]);     // first partial w.r.t. x
-let d2fdxdy = cg.partial(&[1, 1]);  // mixed second partial
+let dfdx = cg.partial(&[1, 0]).unwrap();     // first partial w.r.t. x
+let d2fdxdy = cg.partial(&[1, 1]).unwrap();  // mixed second partial
 ```
 
 ## Available Operations
@@ -141,7 +141,7 @@ let dfdx = results.partials(&[1, 0]);    // Option<&[f32]>
 ### WGSL code generation (no feature required)
 
 ```rust
-let wgsl = compiled_graph.to_wgsl("my_func");
+let wgsl = compiled_graph.to_wgsl("my_func").unwrap();
 // Returns a WGSL struct + function: embeddable in any shader
 ```
 

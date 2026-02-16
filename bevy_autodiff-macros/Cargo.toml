@@ -1,10 +1,16 @@
 [package]
 name = "bevy_autodiff-macros"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Nathan Strange <info@visviva.space>"]
 description = "Procedural macros for bevy_autodiff automatic differentiation"
 license = "MIT"
-repository = "https://github.com/VisVivaSpace/bevy_autodiff.git"
+repository = "https://github.com/VisVivaSpace/bevy_autodiff"
+homepage = "https://github.com/VisVivaSpace/bevy_autodiff"
+documentation = "https://docs.rs/bevy_autodiff"
+keywords = ["autodiff", "differentiation", "bevy", "macros"]
+categories = ["science", "mathematics"]
 
 [lib]
 proc-macro = true
