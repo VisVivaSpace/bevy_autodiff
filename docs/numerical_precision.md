@@ -38,7 +38,9 @@ The adjoint helper functions (`unary_adjoint`, `binary_adjoint`) and the forward
 | `acosh` | `x.acosh()` | `1/sqrt(x²-1)` | 2 ops + sqrt + div; requires `x > 1` |
 | `atanh` | `x.atanh()` | `1/(1-x²)` | 1 mul + 1 sub + 1 div |
 | `Pow` | `x.powf(y)` | `(y*x^(y-1), z*ln(x))` | Multiple intrinsics |
+| `PowLog` | `x.powf(y)` | `(z*y/x, z*ln(x))` | Logarithmic form; see below |
 | `Div` | `x/y` | `(1/y, -x/y²)` | 1-2 divs + 1 mul |
+| `DivLog` | `x/y` | `(z/x, -z/y)` | Logarithmic form; see below |
 
 For individual adjoint formulas, expected relative error is bounded by a small multiple of machine epsilon (a few ULP). The adjoint unit tests use `epsilon = 1e-12`, which is approximately 4500 ULP -- a generous margin that accounts for the formula chain length while remaining well below any level that would mask a bug. A wrong formula (e.g., using `sin` instead of `cos`) would produce errors of O(1), not O(1e-12).
 
@@ -60,6 +62,47 @@ The cross-validation tests (`test_reverse_vs_forward_*`) compare reverse-mode gr
 `bevy_autodiff` does not perform numerical integration or iterative solving. All derivatives are computed symbolically (forward mode) or via exact adjoint formulas (reverse mode). There is no step-size, convergence criterion, or accumulated integration error.
 
 The `stm_propagation` example uses an external integrator (`rkf78`) -- the integration tolerance belongs to that crate, not to `bevy_autodiff`.
+
+## Logarithmic Derivatives and f32 Stability
+
+### The Problem: Catastrophic Cancellation at Second Order
+
+The standard power rule `d(a^b)/da = b · a^(b-1) · da` creates a new node `a^(b-1)`. When this derivative is differentiated again, `a^(b-2)` appears as a separate large value that nearly cancels with `a^(b-1)`-derived terms. In f64, this causes only modest precision loss. In f32 (7 significant digits), the cancellation can produce 100-450% relative errors in second-order derivatives.
+
+This affects any workload that computes Hessians or second-order partials in f32, including GPU batch evaluation of compiled graphs.
+
+### The Solution: Logarithmic Differentiation
+
+The logarithmic alternative rewrites the derivative to reuse the primal value:
+
+| Standard form | Logarithmic form |
+|--------------|-----------------|
+| `d(a^b)/da = b · a^(b-1) · da` | `d(a^b)/da = a^b · b · (da/a)` |
+| `d(a/b)/da = da/b - a·db/b²` | `d(a/b)/da = (a/b) · (da/a - db/b)` |
+
+The logarithmic form works with ratios (`da/a`, `db/b`) rather than creating new large intermediate values. This keeps all intermediate computations within a small factor of the primal values, which is safe for f32's precision.
+
+### Operations
+
+- `pow_log(base, exp)` — same primal as `pow`, logarithmic differentiation rule
+- `powi_log(x, n)` — convenience for `pow_log(x, constant(n))`
+- `powf_log(x, p)` — convenience for `pow_log(x, constant(p))`
+- `div_log(a, b)` — same primal as `div`, logarithmic differentiation rule
+
+These require `base > 0` (for `pow_log`) and `a > 0`, `b > 0` (for `div_log`). When the requirement is violated, the result is NaN — the same behavior as `ln(x)` for `x ≤ 0`.
+
+### When to Use
+
+Use the logarithmic variants when:
+- Computing second-order derivatives (Hessians, second partials) that will be evaluated in f32
+- Building graphs for GPU batch evaluation where f32 precision matters
+- Working with power-law expressions like `r^(-3)` in gravitational or electrostatic problems
+
+The `#[autodiff(stable_derivatives)]` attribute automatically routes all power and division operations to their logarithmic variants.
+
+### Limitation
+
+The logarithmic form eliminates catastrophic cancellation at second order. The intermediate `da/a` sub-expressions use standard division, so at third order and above a milder form of cancellation may appear from differentiating those inner divisions.
 
 ## Known Numerical Considerations
 
@@ -99,3 +142,8 @@ This is correct for symbolic differentiation: a zero derivative term is structur
 | Oracle tests (autodiff crate) | `1e-10` | Cross-implementation: different AD algorithms, same math |
 | Forward-mode symbolic tests | `1e-10` | Tier 2-3: symbolic derivatives evaluated at construction-time values |
 | Exact arithmetic tests | `assert_eq!` | Tier 1: integer-valued results of exact operations |
+| PowLog/DivLog primal match | `assert_eq!` | Tier 1: identical code path as Pow/Div |
+| PowLog/DivLog first-order match | `1e-12` rel | Tier 2: closed-form, different formula but same math |
+| PowLog/DivLog second-order match | `1e-11` rel | Tier 2: deeper symbolic graph, more folding |
+| f32 Hessian (pow_log) | `1e-4` (0.01%) | Problem-dependent: logarithmic form keeps intermediates within ~2.5x of primal |
+| Proc-macro derivative tests | `1e-13` | Tier 2: single closed-form derivative evaluation |

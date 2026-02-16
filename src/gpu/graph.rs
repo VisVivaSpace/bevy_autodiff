@@ -302,12 +302,12 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let c2 = ad.constant(2.0);
         let two_x = ad.mul(c2, x);
         let c1 = ad.constant(1.0);
         let f = ad.add(two_x, c1);
-        let graph = ad.compile_primal(f, &[x]);
+        let graph = ad.compile_primal(f, &[x]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let x_vals: Vec<f32> = (0..100).map(|i| i as f32 * 0.1).collect();
@@ -330,9 +330,9 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let f = ad.sin(x);
-        let graph = ad.compile_primal(f, &[x]);
+        let graph = ad.compile_primal(f, &[x]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let x_vals: Vec<f32> = (0..64).map(|i| i as f32 * 0.1).collect();
@@ -353,10 +353,10 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
+        let y = ad.var(0.0).unwrap();
         let f = ad.mul(x, y);
-        let graph = ad.compile_primal(f, &[x, y]);
+        let graph = ad.compile_primal(f, &[x, y]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let x_vals: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
@@ -377,9 +377,9 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let f = ad.square(x);
-        let graph = ad.compile_order(f, &[x], 1);
+        let graph = ad.compile_order(f, &[x], 1).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let x_vals: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
@@ -414,10 +414,10 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let exp_x = ad.exp(x);
         let f = ad.sin(exp_x);
-        let graph = ad.compile_primal(f, &[x]);
+        let graph = ad.compile_primal(f, &[x]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let x_vals: Vec<f32> = vec![0.0, 0.1, 0.2, 0.5, 1.0];
@@ -438,10 +438,10 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
-        let y = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
+        let y = ad.var(0.0).unwrap();
         let f = ad.add(x, y);
-        let graph = ad.compile_primal(f, &[x, y]);
+        let graph = ad.compile_primal(f, &[x, y]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         // Pass 1 input array when graph expects 2
@@ -454,9 +454,9 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let f = ad.sin(x);
-        let graph = ad.compile_primal(f, &[x]);
+        let graph = ad.compile_primal(f, &[x]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
         let empty: &[f32] = &[];
@@ -470,9 +470,9 @@ mod tests {
         let Some(ctx) = gpu() else { return };
 
         let mut ad = AutoDiff::new();
-        let x = ad.var(0.0);
+        let x = ad.var(0.0).unwrap();
         let f = ad.sin(x);
-        let graph = ad.compile_primal(f, &[x]);
+        let graph = ad.compile_primal(f, &[x]).unwrap();
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
 

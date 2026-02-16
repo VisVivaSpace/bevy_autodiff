@@ -73,7 +73,7 @@ Compares against Rust's experimental `std::autodiff` powered by LLVM/Enzyme. Req
 cargo test --features wgpu
 ```
 
-Tests GPU batch evaluation: NodeOp conversion, dispatch, readback, and GPU-vs-CPU oracle comparison for all 21 operations, compositions, partials, and batch sizes up to 100K. Requires a GPU.
+Tests GPU batch evaluation: NodeOp conversion, dispatch, readback, and GPU-vs-CPU oracle comparison for all 23 operations, compositions, partials, and batch sizes up to 100K. Requires a GPU.
 
 ### Test Strategy
 

@@ -17,7 +17,7 @@ Every node in the computation graph is a Bevy ECS entity with a subset of these 
 | `IsConstant` | Marker: this is a fixed constant (leaf, zero derivative) |
 | `Value(f64)` | Current numerical value |
 | `UnaryOpMarker(UnaryOp)` | Which unary operation this node represents |
-| `BinaryOpMarker(BinaryOp)` | Which binary operation this node represents |
+| `BinaryOpMarker(BinaryOp)` | Which binary operation this node represents (`Add`, `Sub`, `Mul`, `Div`, `Pow`, `DivLog`, `PowLog`) |
 | `UnaryInput(EntityHandle)` | The single input entity for a unary op |
 | `BinaryInputs { left, right }` | The two input entities for a binary op |
 | `Dependencies(u64)` | Bitmask tracking which input variables affect this node |
@@ -77,6 +77,7 @@ src/
   context.rs          # AutoDiff struct: graph building, differentiate(), compile()
   var.rs              # Var handle type (wraps Entity)
   compiled.rs         # CompiledGraph, NodeOp, flatten_graph, adjoint helpers
+  codegen.rs          # WGSL code generation from CompiledGraph
   components/
     variable.rs       # Variable, IsInput, IsConstant, Value, Dependencies
     operations.rs     # UnaryOp, BinaryOp, UnaryOpMarker, BinaryOpMarker, inputs

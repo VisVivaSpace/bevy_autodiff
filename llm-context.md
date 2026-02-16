@@ -10,7 +10,7 @@ Automatic differentiation library using Bevy ECS as the computational graph back
 - Higher-order and mixed partial derivatives (forward-mode symbolic differentiation)
 - Fast repeated evaluation via `CompiledGraph` (flat array, no ECS overhead)
 - GPU batch evaluation via wgpu — evaluate at millions of input points in parallel (f32)
-- 16 unary + 5 binary elementary operations
+- 16 unary + 7 binary elementary operations (includes `PowLog`/`DivLog` logarithmic variants for f32-stable second-order derivatives)
 
 ## When to Use This Crate
 
@@ -24,7 +24,7 @@ Use `bevy_autodiff` when you need:
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.5"
+bevy_autodiff = "0.6"
 ```
 
 ## Core API
@@ -98,11 +98,15 @@ All operations are methods on `AutoDiff`:
 | `asinh(a)`, `acosh(a)`, `atanh(a)` | inverse hyperbolic |
 | `powi(a, n)` | a^n (integer) |
 | `powf(a, p)` | a^p (float) |
+| `pow_log(a, b)` | a^b (logarithmic differentiation) |
+| `powi_log(a, n)` | a^n (logarithmic differentiation) |
+| `powf_log(a, p)` | a^p (logarithmic differentiation) |
+| `div_log(a, b)` | a/b (logarithmic differentiation) |
 
 ### GPU batch evaluation (requires `wgpu` feature)
 
 ```toml
-bevy_autodiff = { version = "0.4", features = ["wgpu"] }
+bevy_autodiff = { version = "0.6", features = ["wgpu"] }
 ```
 
 ```rust
@@ -122,7 +126,7 @@ let wgsl = compiled_graph.to_wgsl("my_func");
 // Returns a WGSL struct + function: embeddable in any shader
 ```
 
-Generates a standalone WGSL function from a compiled graph. All 21 operations map to direct WGSL expressions (no interpreter loop). The output is a struct definition (`{FuncName}Output` with `value` + partial derivative fields) and a pure function. Does not require the `wgpu` feature — pure string generation.
+Generates a standalone WGSL function from a compiled graph. All 23 operations map to direct WGSL expressions (no interpreter loop). The output is a struct definition (`{FuncName}Output` with `value` + partial derivative fields) and a pure function. Does not require the `wgpu` feature — pure string generation.
 
 ## Key Types
 

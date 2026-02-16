@@ -13,14 +13,15 @@ Variables are ECS entities, operations are components, and derivatives are compu
 - **CompiledGraph** -- flattens the ECS graph into a `Vec<NodeOp>` for fast repeated evaluation without ECS overhead
 - **Reverse-mode gradient** -- single backward pass over CompiledGraph computes the full gradient regardless of input count
 - **Forward-mode symbolic partials** -- pre-compiled derivative subgraphs for higher-order derivatives
-- **21 elementary operations** -- 16 unary + 5 binary, all with differentiation rules and reverse-mode adjoints
+- **23 elementary operations** -- 16 unary + 7 binary, all with differentiation rules and reverse-mode adjoints
+- **Logarithmic derivatives** -- `pow_log`/`div_log` variants avoid catastrophic cancellation in f32 second-order derivatives
 - **GPU batch evaluation** -- evaluate compiled graphs at millions of input points in parallel via wgpu (Metal, Vulkan, DX12)
 
 ## Installation
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.5"
+bevy_autodiff = "0.6"
 ```
 
 ## Quick Start
@@ -117,6 +118,9 @@ let d2mix = cg.partial(&[1, 1]);  // d²f/dxdy = 1
 | Trigonometric | `sin`, `cos`, `tan`, `asin`, `acos`, `atan` |
 | Hyperbolic | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
 | Exponential | `exp`, `ln` |
+| Logarithmic derivatives | `pow_log`, `powi_log`, `powf_log`, `div_log` |
+
+The logarithmic derivative variants (`pow_log`, `div_log`) produce identical primal values but use a different symbolic differentiation rule that avoids catastrophic cancellation in f32 at second order. Use them when computing Hessians or second-order partials that will be evaluated in f32 (e.g., on GPU). See [Numerical Precision](docs/numerical_precision.md) for details.
 
 ## Expression Macros
 
@@ -137,7 +141,7 @@ With the `proc-macros` feature, the `#[autodiff]` attribute transforms regular f
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.4", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.6", features = ["proc-macros"] }
 ```
 
 ```rust
@@ -156,13 +160,23 @@ let y = ad.var(1.0);
 let f = rosenbrock(&mut ad, x, y);
 ```
 
+The `stable_derivatives` attribute automatically routes power and division operations to their logarithmic variants, which are more numerically stable for second-order derivatives in f32:
+
+```rust
+#[autodiff(stable_derivatives)]
+fn gravity(r2: Var) -> Var {
+    // pow and / are automatically routed to pow_log and div_log
+    r2.powf(-1.5) * r2  // uses powf_log internally
+}
+```
+
 ## GPU Batch Evaluation
 
 Enable the `wgpu` feature to evaluate compiled graphs on the GPU at millions of input points in parallel. Useful for Monte Carlo simulation, batch trajectory optimization, or any workload that evaluates the same function at many different inputs.
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.4", features = ["wgpu"] }
+bevy_autodiff = { version = "0.6", features = ["wgpu"] }
 ```
 
 ```rust
@@ -305,11 +319,12 @@ RUSTFLAGS="-Zautodiff=Enable" cargo +enzyme test \
   --features std_autodiff_tests                     # Oracle: Enzyme
 ```
 
-The test suite (354 tests with `--features wgpu`) validates correctness through:
+The test suite validates correctness through:
 
 | Test type | What it validates | Count |
 |-----------|-------------------|-------|
-| Unit tests | Graph construction, all 21 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen | 275 |
+| Unit tests | Graph construction, all 23 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen, f32 stability | 311 |
+| Proc-macro tests | `#[autodiff]`, `expr!` macro, `stable_derivatives` attribute | 76 |
 | GPU unit tests | NodeOp conversion, GPU dispatch, buffer readback, error paths | 15 |
 | Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
 | Oracle (GPU vs CPU) | GPU f32 results against CPU f64 for all ops, compositions, partials, batch sizes | 27 |

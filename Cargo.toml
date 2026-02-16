@@ -1,6 +1,6 @@
 [package]
 name = "bevy_autodiff"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.92"
 authors = ["Nathan Strange <info@visviva.space>"]
@@ -18,7 +18,7 @@ exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
 thiserror = "2"
-bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
+bevy_autodiff-macros = { version = "0.2.0", path = "./bevy_autodiff-macros", optional = true }
 wgpu = { version = "28", optional = true }
 bytemuck = { version = "1.25", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }

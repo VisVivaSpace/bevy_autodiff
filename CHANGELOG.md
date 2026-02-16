@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-15
+
+### Added
+
+- Logarithmic derivative operations for f32-stable second-order derivatives:
+  - `pow_log(base, exp)` / `powi_log(x, n)` / `powf_log(x, p)` — power operations that differentiate via `a^b · b · (da/a)` instead of `b · a^(b-1) · da`, avoiding catastrophic cancellation at second order
+  - `div_log(a, b)` — division that differentiates via `(a/b) · (da/a - db/b)` instead of `(da·b - a·db) / b²`
+  - `#[autodiff(stable_derivatives)]` attribute — automatically routes `pow`→`pow_log`, `powi`→`powi_log`, `powf`→`powf_log`, `/`→`div_log`
+  - `expr!` macro support for `pow_log()` and `div_log()`
+  - Free functions: `pow_log`, `powi_log`, `powf_log`, `div_log` for `with_context` usage
+
+### Fixed
+
+- GPU unit tests (`gpu/graph.rs`) now compile after `var()` and `compile_*()` API changed to return `Result`
+
+### Changed
+
+- Tightened test tolerances per aerospace numerical methods review (primal matches now use `assert_eq!`, first-order `1e-12`, second-order `1e-11`)
+
 ## [0.5.0] - 2026-02-15
 
 ### Added
@@ -92,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Oracle validation against the `autodiff` crate
 - Operator overloading via `with_context`
 
+[0.6.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.2.0...v0.3.0
