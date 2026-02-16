@@ -658,6 +658,10 @@ mod tests {
     }
 
     /// First-order: pow_log derivative matches pow derivative numerically.
+    ///
+    /// Tier 2 (closed-form deterministic): both compute the same mathematical
+    /// derivative via different expression trees in f64. Expected discrepancy
+    /// is a few ULPs from different evaluation order, bounded by ~5ε × magnitude.
     #[test]
     fn pow_log_first_order_matches_pow() {
         use crate::AutoDiff;
@@ -677,7 +681,7 @@ mod tests {
                 let deriv_log = ad_log.eval(df2).unwrap();
 
                 assert!(
-                    (deriv_pow - deriv_log).abs() < 1e-10 * deriv_pow.abs().max(1.0),
+                    (deriv_pow - deriv_log).abs() < 1e-12 * deriv_pow.abs().max(1.0),
                     "pow_log first-order mismatch at x={x_val}, p={p}: pow={deriv_pow}, log={deriv_log}"
                 );
             }
@@ -685,6 +689,9 @@ mod tests {
     }
 
     /// div_log first-order: matches div derivative numerically.
+    ///
+    /// Tier 2 (closed-form deterministic): different expression trees, same
+    /// mathematical result. Discrepancy bounded by a few ULPs.
     #[test]
     fn div_log_first_order_matches_div() {
         use crate::AutoDiff;
@@ -711,11 +718,11 @@ mod tests {
                 let deriv_log_dy = ad_log.eval(df2_dy).unwrap();
 
                 assert!(
-                    (deriv_div_dx - deriv_log_dx).abs() < 1e-10 * deriv_div_dx.abs().max(1.0),
+                    (deriv_div_dx - deriv_log_dx).abs() < 1e-12 * deriv_div_dx.abs().max(1.0),
                     "div_log dx mismatch at x={x_val},y={y_val}: div={deriv_div_dx}, log={deriv_log_dx}"
                 );
                 assert!(
-                    (deriv_div_dy - deriv_log_dy).abs() < 1e-10 * deriv_div_dy.abs().max(1.0),
+                    (deriv_div_dy - deriv_log_dy).abs() < 1e-12 * deriv_div_dy.abs().max(1.0),
                     "div_log dy mismatch at x={x_val},y={y_val}: div={deriv_div_dy}, log={deriv_log_dy}"
                 );
             }
@@ -723,6 +730,9 @@ mod tests {
     }
 
     /// powi_log derivative: d/dx(x^3) = 3x² via powi_log.
+    ///
+    /// Tier 2 (closed-form deterministic): log form computes x^3 * 3 / x = 3x²
+    /// via a short f64 chain. Expected error bounded by a few ULPs.
     #[test]
     fn powi_log_derivative() {
         use crate::AutoDiff;
@@ -736,13 +746,18 @@ mod tests {
             let expected = 3.0 * x_val * x_val;
 
             assert!(
-                (deriv - expected).abs() < 1e-10,
+                (deriv - expected).abs() < 1e-13,
                 "powi_log d/dx(x^3) at x={x_val}: got {deriv}, expected {expected}"
             );
         }
     }
 
     /// Second-order pow_log derivative matches pow derivative numerically.
+    ///
+    /// Tier 2 (closed-form deterministic, deeper graph): second-order
+    /// derivatives involve ~8-10 node expression trees with structural
+    /// differences between Pow and PowLog. Both produce the same
+    /// mathematical result p*(p-1)*x^(p-2) in f64.
     #[test]
     fn pow_log_second_order_matches_pow() {
         use crate::AutoDiff;
@@ -764,7 +779,7 @@ mod tests {
                 let d2_log = ad_log.eval(d2f2).unwrap();
 
                 assert!(
-                    (d2_pow - d2_log).abs() < 1e-8 * d2_pow.abs().max(1.0),
+                    (d2_pow - d2_log).abs() < 1e-11 * d2_pow.abs().max(1.0),
                     "pow_log 2nd-order mismatch at x={x_val}, p={p}: pow={d2_pow}, log={d2_log}"
                 );
             }
@@ -774,8 +789,12 @@ mod tests {
     /// THE KEY TEST: Two-body Hessian with pow_log produces accurate f32 results.
     ///
     /// Builds a_x = -mu * x / r³ using powf_log(r2, -1.5) instead of powf(r2, -1.5),
-    /// then verifies that f32 simulation matches analytical Hessian within 1% tolerance
-    /// (vs the >100% errors with standard pow).
+    /// then verifies that f32 simulation matches analytical Hessian.
+    ///
+    /// f32 error budget: the expression graph has ~15-20 nodes with intermediates
+    /// of magnitude ~1e-12 to ~1e4. With f32 ε ≈ 1.2e-7, expected relative error
+    /// is ~20 × ε ≈ 2.4e-6. Tolerance of 1e-4 provides ~40× headroom.
+    /// Compare: standard pow produces >100% errors at this point.
     #[test]
     fn two_body_hessian_pow_log_f32_stable() {
         use crate::AutoDiff;
@@ -858,15 +877,20 @@ mod tests {
         for &(f32_val, analytical, name) in &hessian_f32 {
             let err = rel_err(f32_val as f64, analytical);
             eprintln!("{name}: f32={f32_val:>15.6e}  analytical={analytical:>15.6e}  rel_err={err:.2e}");
+            // f32 error budget: ~20 ops × f32 ε ≈ 2.4e-6 expected; 1e-4 gives ~40× headroom
             assert!(
-                err < 0.01,
-                "pow_log f32 {name} relative error {err:.4e} exceeds 1% — \
+                err < 1e-4,
+                "pow_log f32 {name} relative error {err:.4e} exceeds 0.01% — \
                  f32={f32_val}, analytical={analytical}"
             );
         }
     }
 
     /// div_log second-order: matches div second derivative.
+    ///
+    /// Tier 2 (closed-form deterministic): d²(x/y)/dxdy = -1/y² is a
+    /// short closed-form expression in f64. Both div and div_log should
+    /// agree with analytical to near machine precision.
     #[test]
     fn div_log_second_order_matches_div() {
         use crate::AutoDiff;
@@ -892,11 +916,11 @@ mod tests {
 
                 let expected = -1.0 / (y_val * y_val);
                 assert!(
-                    (d2_div - expected).abs() < 1e-10,
+                    (d2_div - expected).abs() < 1e-13,
                     "div d²f/dxdy at x={x_val},y={y_val}: got {d2_div}, expected {expected}"
                 );
                 assert!(
-                    (d2_log - expected).abs() < 1e-10,
+                    (d2_log - expected).abs() < 1e-13,
                     "div_log d²f/dxdy at x={x_val},y={y_val}: got {d2_log}, expected {expected}"
                 );
             }
@@ -904,6 +928,9 @@ mod tests {
     }
 
     /// pow_log primal evaluation matches pow.
+    ///
+    /// Tier 1 (exact): both Pow and PowLog call x.powf(y) through the same
+    /// code path in apply_binary_value, so results must be bit-identical.
     #[test]
     fn pow_log_primal_matches_pow() {
         use crate::AutoDiff;
@@ -915,14 +942,17 @@ mod tests {
             let f_log = ad.powf_log(x, p);
             let v_pow = ad.eval(f_pow).unwrap();
             let v_log = ad.eval(f_log).unwrap();
-            assert!(
-                (v_pow - v_log).abs() < 1e-15,
+            assert_eq!(
+                v_pow, v_log,
                 "primal mismatch at x={x_val},p={p}: pow={v_pow}, log={v_log}"
             );
         }
     }
 
     /// div_log primal evaluation matches div.
+    ///
+    /// Tier 1 (exact): both Div and DivLog call x / y through the same
+    /// code path in apply_binary_value, so results must be bit-identical.
     #[test]
     fn div_log_primal_matches_div() {
         use crate::AutoDiff;
@@ -935,8 +965,8 @@ mod tests {
             let f_log = ad.div_log(x, y);
             let v_div = ad.eval(f_div).unwrap();
             let v_log = ad.eval(f_log).unwrap();
-            assert!(
-                (v_div - v_log).abs() < 1e-15,
+            assert_eq!(
+                v_div, v_log,
                 "primal mismatch at x={x_val},y={y_val}: div={v_div}, log={v_log}"
             );
         }

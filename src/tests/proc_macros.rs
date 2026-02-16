@@ -1114,9 +1114,9 @@ fn test_autodiff_pow_log() {
     let x = ad.var(2.0).unwrap();
     let y = ad.var(3.0).unwrap();
 
-    // 2^3 = 8
+    // 2^3 = 8 (Tier 2: closed-form f64, few ULPs expected)
     let f = pow_log_func(&mut ad, x, y);
-    assert!((ad.eval(f).unwrap() - 8.0).abs() < 1e-10);
+    assert!((ad.eval(f).unwrap() - 8.0).abs() < 1e-13);
 }
 
 #[test]
@@ -1126,7 +1126,7 @@ fn test_autodiff_div_log() {
     let y = ad.var(2.0).unwrap();
 
     let f = div_log_func(&mut ad, x, y);
-    assert!((ad.eval(f).unwrap() - 3.0).abs() < 1e-10);
+    assert!((ad.eval(f).unwrap() - 3.0).abs() < 1e-13);
 }
 
 #[test]
@@ -1134,9 +1134,9 @@ fn test_autodiff_powi_log_derivative() {
     let mut ad = AutoDiff::new();
     let x = ad.var(2.0).unwrap();
 
-    // d/dx x^3 = 3x^2 = 12
+    // d/dx x^3 = 3x^2 = 12 (Tier 2: closed-form f64)
     let f = powi_log_func(&mut ad, x);
-    assert!((ad.derivative(f, x, 1).unwrap() - 12.0).abs() < 1e-10);
+    assert!((ad.derivative(f, x, 1).unwrap() - 12.0).abs() < 1e-13);
 }
 
 #[test]
@@ -1145,10 +1145,10 @@ fn test_autodiff_stable_derivatives() {
     let x = ad.var(2.0).unwrap();
     let y = ad.var(3.0).unwrap();
 
-    // pow(2,3) + 2/3 = 8 + 0.6667 = 8.6667
+    // pow(2,3) + 2/3 = 8 + 0.6667 = 8.6667 (Tier 2: closed-form f64)
     let f = stable_power_div(&mut ad, x, y);
     let expected = 8.0 + 2.0 / 3.0;
-    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-10);
+    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-13);
 }
 
 #[test]
@@ -1156,13 +1156,13 @@ fn test_autodiff_stable_derivatives_powi_powf() {
     let mut ad = AutoDiff::new();
     let x = ad.var(2.0).unwrap();
 
-    // x.powi(3) + x.powf(0.5) = 8 + sqrt(2) ≈ 9.4142
+    // x.powi(3) + x.powf(0.5) = 8 + sqrt(2) ≈ 9.4142 (Tier 2: closed-form f64)
     let f = stable_method_powi_powf(&mut ad, x);
     let expected = 8.0 + 2.0_f64.sqrt();
-    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-10);
+    assert!((ad.eval(f).unwrap() - expected).abs() < 1e-13);
 
     // Derivative: 3x^2 + 0.5*x^(-0.5) = 12 + 0.5/sqrt(2) ≈ 12.3536
     let deriv = ad.derivative(f, x, 1).unwrap();
     let expected_deriv = 12.0 + 0.5 * 2.0_f64.powf(-0.5);
-    assert!((deriv - expected_deriv).abs() < 1e-10);
+    assert!((deriv - expected_deriv).abs() < 1e-13);
 }
