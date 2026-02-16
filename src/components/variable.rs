@@ -50,7 +50,7 @@ impl Value {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Dependencies {
     /// Bitmask of input variable indices that affect this variable.
-    pub mask: u64,
+    pub(crate) mask: u64,
 }
 
 impl Dependencies {

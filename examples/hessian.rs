@@ -28,8 +28,14 @@ fn main() {
     // Gradient
     let dfdx = ad.differentiate(f, x).unwrap();
     let dfdy = ad.differentiate(f, y).unwrap();
-    println!("df/dx = {} (expected 4: 2xy = 2*1*2)", ad.eval(dfdx).unwrap());
-    println!("df/dy = {} (expected 13: x² + 3y² = 1 + 12)", ad.eval(dfdy).unwrap());
+    println!(
+        "df/dx = {} (expected 4: 2xy = 2*1*2)",
+        ad.eval(dfdx).unwrap()
+    );
+    println!(
+        "df/dy = {} (expected 13: x² + 3y² = 1 + 12)",
+        ad.eval(dfdy).unwrap()
+    );
 
     // Hessian (second derivatives)
     let d2fdx2 = ad.differentiate(dfdx, x).unwrap();
@@ -39,9 +45,18 @@ fn main() {
 
     println!("\nHessian matrix at (1, 2):");
     println!("  d²f/dx²  = {} (expected 4: 2y)", ad.eval(d2fdx2).unwrap());
-    println!("  d²f/dxdy = {} (expected 2: 2x)", ad.eval(d2fdxdy).unwrap());
-    println!("  d²f/dydx = {} (expected 2: 2x)", ad.eval(d2fdydx).unwrap());
-    println!("  d²f/dy²  = {} (expected 12: 6y)", ad.eval(d2fdy2).unwrap());
+    println!(
+        "  d²f/dxdy = {} (expected 2: 2x)",
+        ad.eval(d2fdxdy).unwrap()
+    );
+    println!(
+        "  d²f/dydx = {} (expected 2: 2x)",
+        ad.eval(d2fdydx).unwrap()
+    );
+    println!(
+        "  d²f/dy²  = {} (expected 12: 6y)",
+        ad.eval(d2fdy2).unwrap()
+    );
 
     // Verify mixed partial symmetry: d²f/dxdy = d²f/dydx
     assert_eq!(ad.eval(d2fdxdy).unwrap(), ad.eval(d2fdydx).unwrap());

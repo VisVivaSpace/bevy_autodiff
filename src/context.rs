@@ -6,8 +6,8 @@ use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
 use crate::components::{
-    BinaryInputs, BinaryOp, BinaryOpMarker, Dependencies, IsConstant, IsInput, UnaryInput,
-    UnaryOp, UnaryOpMarker, Value, Variable,
+    BinaryInputs, BinaryOp, BinaryOpMarker, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp,
+    UnaryOpMarker, Value, Variable,
 };
 use crate::graph::topology::topological_order;
 use crate::var::Var;
@@ -110,6 +110,7 @@ impl AutoDiff {
     ///
     /// Constants have zero derivatives with respect to all inputs.
     /// They are useful for embedding fixed values in the computation graph.
+    #[must_use]
     pub fn constant(&mut self, value: f64) -> Var {
         let entity = self
             .world
@@ -180,16 +181,19 @@ impl AutoDiff {
     // =========================================================================
 
     /// Creates a new variable representing the sum of two variables: a + b
+    #[must_use]
     pub fn add(&mut self, a: Var, b: Var) -> Var {
         self.binary_op(BinaryOp::Add, a, b, |x, y| x + y)
     }
 
     /// Creates a new variable representing the difference of two variables: a - b
+    #[must_use]
     pub fn sub(&mut self, a: Var, b: Var) -> Var {
         self.binary_op(BinaryOp::Sub, a, b, |x, y| x - y)
     }
 
     /// Creates a new variable representing the product of two variables: a * b
+    #[must_use]
     pub fn mul(&mut self, a: Var, b: Var) -> Var {
         self.binary_op(BinaryOp::Mul, a, b, |x, y| x * y)
     }
@@ -198,11 +202,13 @@ impl AutoDiff {
     ///
     /// # Note
     /// Division by zero will produce NaN or infinity in the value.
+    #[must_use]
     pub fn div(&mut self, a: Var, b: Var) -> Var {
         self.binary_op(BinaryOp::Div, a, b, |x, y| x / y)
     }
 
     /// Creates a new variable representing a raised to the power b: a^b
+    #[must_use]
     pub fn pow(&mut self, base: Var, exponent: Var) -> Var {
         self.binary_op(BinaryOp::Pow, base, exponent, |x, y| x.powf(y))
     }
@@ -223,6 +229,7 @@ impl AutoDiff {
     /// target and this is sufficient.
     ///
     /// **Requirement:** `base > 0`. Produces NaN if the base is zero or negative.
+    #[must_use]
     pub fn pow_log(&mut self, base: Var, exponent: Var) -> Var {
         self.binary_op(BinaryOp::PowLog, base, exponent, |x, y| x.powf(y))
     }
@@ -238,6 +245,7 @@ impl AutoDiff {
     /// division. See [`pow_log`](Self::pow_log) for details on higher-order limits.
     ///
     /// **Requirement:** both `a` and `b` must be nonzero. Produces NaN otherwise.
+    #[must_use]
     pub fn div_log(&mut self, a: Var, b: Var) -> Var {
         self.binary_op(BinaryOp::DivLog, a, b, |x, y| x / y)
     }
@@ -247,6 +255,7 @@ impl AutoDiff {
     /// See [`pow_log`](Self::pow_log) for details on when to use this.
     ///
     /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
+    #[must_use]
     pub fn powi_log(&mut self, x: Var, n: i32) -> Var {
         let n_const = self.constant(n as f64);
         self.pow_log(x, n_const)
@@ -257,6 +266,7 @@ impl AutoDiff {
     /// See [`pow_log`](Self::pow_log) for details on when to use this.
     ///
     /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
+    #[must_use]
     pub fn powf_log(&mut self, x: Var, p: f64) -> Var {
         let p_const = self.constant(p);
         self.pow_log(x, p_const)
@@ -303,21 +313,25 @@ impl AutoDiff {
     // =========================================================================
 
     /// Creates a new variable representing the negation: -x
+    #[must_use]
     pub fn neg(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Neg, x, |v| -v)
     }
 
     /// Creates a new variable representing sin(x)
+    #[must_use]
     pub fn sin(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Sin, x, f64::sin)
     }
 
     /// Creates a new variable representing cos(x)
+    #[must_use]
     pub fn cos(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Cos, x, f64::cos)
     }
 
     /// Creates a new variable representing exp(x) = e^x
+    #[must_use]
     pub fn exp(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Exp, x, f64::exp)
     }
@@ -326,6 +340,7 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for negative inputs, -infinity for zero.
+    #[must_use]
     pub fn ln(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Ln, x, f64::ln)
     }
@@ -334,26 +349,31 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for negative inputs.
+    #[must_use]
     pub fn sqrt(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Sqrt, x, f64::sqrt)
     }
 
     /// Creates a new variable representing sinh(x)
+    #[must_use]
     pub fn sinh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Sinh, x, f64::sinh)
     }
 
     /// Creates a new variable representing cosh(x)
+    #[must_use]
     pub fn cosh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Cosh, x, f64::cosh)
     }
 
     /// Creates a new variable representing tan(x)
+    #[must_use]
     pub fn tan(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Tan, x, f64::tan)
     }
 
     /// Creates a new variable representing tanh(x)
+    #[must_use]
     pub fn tanh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Tanh, x, f64::tanh)
     }
@@ -362,6 +382,7 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for inputs outside [-1, 1].
+    #[must_use]
     pub fn asin(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Asin, x, f64::asin)
     }
@@ -370,16 +391,19 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for inputs outside [-1, 1].
+    #[must_use]
     pub fn acos(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Acos, x, f64::acos)
     }
 
     /// Creates a new variable representing atan(x)
+    #[must_use]
     pub fn atan(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Atan, x, f64::atan)
     }
 
     /// Creates a new variable representing asinh(x)
+    #[must_use]
     pub fn asinh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Asinh, x, f64::asinh)
     }
@@ -388,6 +412,7 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for inputs less than 1.
+    #[must_use]
     pub fn acosh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Acosh, x, f64::acosh)
     }
@@ -396,6 +421,7 @@ impl AutoDiff {
     ///
     /// # Note
     /// Returns NaN for inputs outside (-1, 1).
+    #[must_use]
     pub fn atanh(&mut self, x: Var) -> Var {
         self.unary_op(UnaryOp::Atanh, x, f64::atanh)
     }
@@ -433,17 +459,20 @@ impl AutoDiff {
 
     /// Creates a new variable representing x^2 (more efficient than pow for squares)
     #[inline]
+    #[must_use]
     pub fn square(&mut self, x: Var) -> Var {
         self.mul(x, x)
     }
 
     /// Creates a new variable representing x^n for integer n
+    #[must_use]
     pub fn powi(&mut self, x: Var, n: i32) -> Var {
         let n_const = self.constant(n as f64);
         self.pow(x, n_const)
     }
 
     /// Creates a new variable representing x^p for float p
+    #[must_use]
     pub fn powf(&mut self, x: Var, p: f64) -> Var {
         let p_const = self.constant(p);
         self.pow(x, p_const)
@@ -499,29 +528,28 @@ impl AutoDiff {
 
     /// Gathers current values of all input variables.
     fn gather_input_values(&self) -> Vec<f64> {
-        self.inputs.iter().map(|&v| self.eval_unchecked(v)).collect()
+        self.inputs
+            .iter()
+            .map(|&v| self.eval_unchecked(v))
+            .collect()
     }
 
-    /// Returns the position of `var` in `self.inputs`.
-    ///
-    /// # Panics
-    /// Panics if `var` is not an input variable in this context.
-    fn input_index(&self, var: Var) -> usize {
+    /// Returns the position of `var` in `self.inputs`, or `NotAnInput` error.
+    fn input_index(&self, var: Var) -> Result<usize, crate::error::AutoDiffError> {
         self.inputs
             .iter()
             .position(|&v| v == var)
-            .expect("Variable is not an input in this context")
+            .ok_or(crate::error::AutoDiffError::NotAnInput)
     }
 
     /// Sets multiple input values at once.
     ///
-    /// # Panics
-    /// Panics if any variable is not an input variable.
-    pub fn set_inputs(&mut self, inputs: &[(Var, f64)]) {
+    /// Returns an error if any variable is not an input variable.
+    pub fn set_inputs(&mut self, inputs: &[(Var, f64)]) -> Result<(), crate::error::AutoDiffError> {
         for &(var, value) in inputs {
-            self.set_input(var, value)
-                .expect("set_inputs: variable is not an input");
+            self.set_input(var, value)?;
         }
+        Ok(())
     }
 
     // =========================================================================
@@ -550,7 +578,11 @@ impl AutoDiff {
     /// let d2fdxdy = ad.differentiate(dfdx, y).unwrap();
     /// assert_eq!(ad.eval(d2fdxdy).unwrap(), 1.0);
     /// ```
-    pub fn differentiate(&mut self, output: Var, wrt: Var) -> Result<Var, crate::error::AutoDiffError> {
+    pub fn differentiate(
+        &mut self,
+        output: Var,
+        wrt: Var,
+    ) -> Result<Var, crate::error::AutoDiffError> {
         let order = topological_order(&self.world, output.entity())?;
         let mut derivs: HashMap<bevy_ecs::entity::Entity, Var> = HashMap::new();
 
@@ -596,16 +628,16 @@ impl AutoDiff {
             let z = Var::new(entity);
 
             if let Some(op) = unary_op {
-                let a_entity = unary_input_entity
-                    .expect("internal: unary op must have input entity");
+                let a_entity =
+                    unary_input_entity.expect("internal: unary op must have input entity");
                 let a = Var::new(a_entity);
                 let da = derivs[&a_entity];
 
                 let dz = self.differentiate_unary(op, z, a, da, one);
                 derivs.insert(entity, dz);
             } else if let Some(op) = binary_op {
-                let (a_entity, b_entity) = binary_input_entities
-                    .expect("internal: binary op must have input entities");
+                let (a_entity, b_entity) =
+                    binary_input_entities.expect("internal: binary op must have input entities");
                 let a = Var::new(a_entity);
                 let b = Var::new(b_entity);
                 let da = derivs[&a_entity];
@@ -869,12 +901,17 @@ impl AutoDiff {
     /// assert_eq!(ad.derivative(f, x, 2).unwrap(), 12.0); // 6x = 12
     /// assert_eq!(ad.derivative(f, x, 3).unwrap(), 6.0);  // 6
     /// ```
-    pub fn derivative(&mut self, output: Var, input: Var, order: usize) -> Result<f64, crate::error::AutoDiffError> {
+    pub fn derivative(
+        &mut self,
+        output: Var,
+        input: Var,
+        order: usize,
+    ) -> Result<f64, crate::error::AutoDiffError> {
         if order == 0 {
             return self.eval(output);
         }
         let all_inputs: Vec<Var> = self.inputs.clone();
-        let idx = self.input_index(input);
+        let idx = self.input_index(input)?;
         let mut multi_index = vec![0usize; all_inputs.len()];
         multi_index[idx] = order;
         let mut cg = self.compile(output, &all_inputs, &[multi_index.clone()])?;
@@ -904,12 +941,18 @@ impl AutoDiff {
     /// // d²f/dxdy = 2x = 2
     /// assert_eq!(ad.partial(f, &[1, 1], &[x, y]).unwrap(), 2.0);
     /// ```
-    pub fn partial(&mut self, output: Var, multi_index: &[usize], inputs: &[Var]) -> Result<f64, crate::error::AutoDiffError> {
-        assert_eq!(
-            multi_index.len(),
-            inputs.len(),
-            "multi_index and inputs must have the same length"
-        );
+    pub fn partial(
+        &mut self,
+        output: Var,
+        multi_index: &[usize],
+        inputs: &[Var],
+    ) -> Result<f64, crate::error::AutoDiffError> {
+        if multi_index.len() != inputs.len() {
+            return Err(crate::error::AutoDiffError::MultiIndexLengthMismatch {
+                expected: inputs.len(),
+                got: multi_index.len(),
+            });
+        }
         let total_order: usize = multi_index.iter().sum();
         if total_order == 0 {
             return self.eval(output);
@@ -919,7 +962,7 @@ impl AutoDiff {
         let mut full_mi = vec![0usize; all_inputs.len()];
         for (i, &count) in multi_index.iter().enumerate() {
             if count > 0 {
-                let idx = self.input_index(inputs[i]);
+                let idx = self.input_index(inputs[i])?;
                 full_mi[idx] += count;
             }
         }
@@ -990,7 +1033,7 @@ impl AutoDiff {
         inputs: &[Var],
         partials: &[Vec<usize>],
     ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
-        use crate::compiled::{flatten_graph, CompiledGraph};
+        use crate::compiled::{CompiledGraph, flatten_graph};
         use crate::graph::topology::topological_order_multi;
 
         // 1. Build derivative Vars for each requested partial
@@ -1033,7 +1076,12 @@ impl AutoDiff {
             .map(|(mi, var)| (mi.clone(), entity_to_index[&var.entity()]))
             .collect();
 
-        Ok(CompiledGraph::new(nodes, inputs.len(), output_index, partial_outputs))
+        Ok(CompiledGraph::new(
+            nodes,
+            inputs.len(),
+            output_index,
+            partial_outputs,
+        ))
     }
 
     /// Compiles only the function value (no symbolic derivatives).
@@ -1853,7 +1901,11 @@ mod tests {
         let dfdy = ad.differentiate(f, y).unwrap();
         let d2fdydx = ad.differentiate(dfdy, x).unwrap();
 
-        assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), ad.eval(d2fdydx).unwrap(), epsilon = 1e-10);
+        assert_relative_eq!(
+            ad.eval(d2fdxdy).unwrap(),
+            ad.eval(d2fdydx).unwrap(),
+            epsilon = 1e-10
+        );
         // d²f/dxdy = 2x at (1,2) → 2
         assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), 2.0, epsilon = 1e-10);
     }
@@ -2088,13 +2140,21 @@ mod tests {
         cg.eval(&[2.0, 3.0]).unwrap();
         assert_relative_eq!(cg.value(), 8.0, epsilon = 1e-10);
         assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), 12.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), 8.0 * 2.0_f64.ln(), epsilon = 1e-10);
+        assert_relative_eq!(
+            cg.partial(&[0, 1]).unwrap(),
+            8.0 * 2.0_f64.ln(),
+            epsilon = 1e-10
+        );
 
         // Re-evaluate at (x=3, y=2): f = 9, df/dx = 2*3 = 6, df/dy = 9*ln(3)
         cg.eval(&[3.0, 2.0]).unwrap();
         assert_relative_eq!(cg.value(), 9.0, epsilon = 1e-10);
         assert_relative_eq!(cg.partial(&[1, 0]).unwrap(), 6.0, epsilon = 1e-10);
-        assert_relative_eq!(cg.partial(&[0, 1]).unwrap(), 9.0 * 3.0_f64.ln(), epsilon = 1e-10);
+        assert_relative_eq!(
+            cg.partial(&[0, 1]).unwrap(),
+            9.0 * 3.0_f64.ln(),
+            epsilon = 1e-10
+        );
     }
 
     #[test]
@@ -2169,41 +2229,25 @@ mod tests {
     #[test]
     fn test_reverse_vs_forward_add() {
         // f = x + y
-        assert_reverse_matches_forward(
-            |ad, x, y| ad.add(x, y),
-            &[(2.0, 3.0), (-1.0, 5.0)],
-            1e-10,
-        );
+        assert_reverse_matches_forward(|ad, x, y| ad.add(x, y), &[(2.0, 3.0), (-1.0, 5.0)], 1e-10);
     }
 
     #[test]
     fn test_reverse_vs_forward_sub() {
         // f = x - y
-        assert_reverse_matches_forward(
-            |ad, x, y| ad.sub(x, y),
-            &[(2.0, 3.0), (5.0, 1.0)],
-            1e-10,
-        );
+        assert_reverse_matches_forward(|ad, x, y| ad.sub(x, y), &[(2.0, 3.0), (5.0, 1.0)], 1e-10);
     }
 
     #[test]
     fn test_reverse_vs_forward_div() {
         // f = x / y
-        assert_reverse_matches_forward(
-            |ad, x, y| ad.div(x, y),
-            &[(6.0, 3.0), (1.0, 2.0)],
-            1e-10,
-        );
+        assert_reverse_matches_forward(|ad, x, y| ad.div(x, y), &[(6.0, 3.0), (1.0, 2.0)], 1e-10);
     }
 
     #[test]
     fn test_reverse_vs_forward_pow() {
         // f = x^y
-        assert_reverse_matches_forward(
-            |ad, x, y| ad.pow(x, y),
-            &[(2.0, 3.0), (3.0, 2.0)],
-            1e-10,
-        );
+        assert_reverse_matches_forward(|ad, x, y| ad.pow(x, y), &[(2.0, 3.0), (3.0, 2.0)], 1e-10);
     }
 
     #[test]
@@ -2298,12 +2342,7 @@ mod tests {
 
     #[test]
     fn test_reverse_gradient_sin() {
-        assert_gradient_1d(
-            |ad, x| ad.sin(x),
-            &[0.0, 0.5, 1.0, 2.0],
-            |x| x.cos(),
-            1e-10,
-        );
+        assert_gradient_1d(|ad, x| ad.sin(x), &[0.0, 0.5, 1.0, 2.0], |x| x.cos(), 1e-10);
     }
 
     #[test]
@@ -2338,12 +2377,7 @@ mod tests {
 
     #[test]
     fn test_reverse_gradient_ln() {
-        assert_gradient_1d(
-            |ad, x| ad.ln(x),
-            &[0.5, 1.0, 2.0, 10.0],
-            |x| 1.0 / x,
-            1e-10,
-        );
+        assert_gradient_1d(|ad, x| ad.ln(x), &[0.5, 1.0, 2.0, 10.0], |x| 1.0 / x, 1e-10);
     }
 
     #[test]
@@ -2358,22 +2392,12 @@ mod tests {
 
     #[test]
     fn test_reverse_gradient_sinh() {
-        assert_gradient_1d(
-            |ad, x| ad.sinh(x),
-            &[0.0, 1.0, -1.0],
-            |x| x.cosh(),
-            1e-10,
-        );
+        assert_gradient_1d(|ad, x| ad.sinh(x), &[0.0, 1.0, -1.0], |x| x.cosh(), 1e-10);
     }
 
     #[test]
     fn test_reverse_gradient_cosh() {
-        assert_gradient_1d(
-            |ad, x| ad.cosh(x),
-            &[0.0, 1.0, -1.0],
-            |x| x.sinh(),
-            1e-10,
-        );
+        assert_gradient_1d(|ad, x| ad.cosh(x), &[0.0, 1.0, -1.0], |x| x.sinh(), 1e-10);
     }
 
     #[test]
@@ -2496,8 +2520,8 @@ mod tests {
 
         let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
         let grad = cg.eval_gradient(&[6.0, 3.0]).unwrap();
-        assert_relative_eq!(grad[0], 1.0 / 3.0, epsilon = 1e-12);    // df/dx = 1/y
-        assert_relative_eq!(grad[1], -6.0 / 9.0, epsilon = 1e-12);   // df/dy = -x/y²
+        assert_relative_eq!(grad[0], 1.0 / 3.0, epsilon = 1e-12); // df/dx = 1/y
+        assert_relative_eq!(grad[1], -6.0 / 9.0, epsilon = 1e-12); // df/dy = -x/y²
     }
 
     #[test]
@@ -2529,5 +2553,42 @@ mod tests {
         cg_primal.eval(&[2.0, 3.0]).unwrap();
         cg_full.eval(&[2.0, 3.0]).unwrap();
         assert_eq!(cg_primal.value(), cg_full.value());
+    }
+
+    #[test]
+    fn test_multi_index_length_mismatch() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+        let f = ad.mul(x, y);
+
+        // multi_index has 3 elements but only 2 inputs provided
+        let result = ad.partial(f, &[1, 0, 0], &[x, y]);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::AutoDiffError::MultiIndexLengthMismatch {
+                expected: 2,
+                got: 3
+            }
+        ));
+    }
+
+    #[test]
+    fn test_set_inputs_not_an_input() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(1.0).unwrap();
+        let c = ad.constant(5.0);
+
+        // Trying to set a constant as if it were an input
+        let result = ad.set_inputs(&[(c, 10.0)]);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::AutoDiffError::NotAnInput
+        ));
+
+        // Setting a valid input should work
+        assert!(ad.set_inputs(&[(x, 2.0)]).is_ok());
     }
 }

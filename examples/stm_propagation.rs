@@ -14,8 +14,8 @@
 
 use std::cell::RefCell;
 
-use bevy_autodiff::compiled::CompiledGraph;
 use bevy_autodiff::AutoDiff;
+use bevy_autodiff::compiled::CompiledGraph;
 use rkf78::{OdeSystem, Rkf78, Tolerances};
 
 /// Earth gravitational parameter (km³/s²)
@@ -271,7 +271,7 @@ fn main() {
     let mut y0 = [0.0f64; 42];
     y0[0] = r0; //  x = r0
     y0[4] = v0; // vy = circular velocity
-                // STM initialized to 6×6 identity
+    // STM initialized to 6×6 identity
     for i in 0..6 {
         y0[6 + i * 6 + i] = 1.0;
     }

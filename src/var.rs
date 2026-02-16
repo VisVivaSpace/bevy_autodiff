@@ -47,6 +47,12 @@ impl Var {
     }
 }
 
+impl std::fmt::Display for Var {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Var({})", self.entity.index())
+    }
+}
+
 impl PartialEq for Var {
     #[inline]
     fn eq(&self, other: &Self) -> bool {

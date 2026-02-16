@@ -5,8 +5,8 @@
 //!
 //! Run with: cargo run --example gpu_batch --features wgpu
 
-use bevy_autodiff::gpu::GpuContext;
 use bevy_autodiff::AutoDiff;
+use bevy_autodiff::gpu::GpuContext;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Create GPU context
@@ -57,7 +57,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // 7. Read results
+    // Note: GPU uses f32 precision; CPU graph uses f64. Tolerance of 1e-4 accounts
+    // for f64→f32 conversion (~1e-7 relative) plus WGSL shader rounding.
     let values = results.values();
+
+    // Validate: at sample index 0, x=-1.0 and y=0.0.
+    // f(-1, 0) = sin(-1*0) + exp(-1) = 0 + 1/e ≈ 0.36788
+    let expected_f0 = (-1.0_f32).exp(); // sin(0) + exp(-1)
+    assert!(
+        (values[0] - expected_f0).abs() < 1e-4,
+        "GPU f(-1, 0) = {}, expected {:.6}",
+        values[0],
+        expected_f0
+    );
+
     println!("f(0, 0) = {:.6}", values[num_samples / 2]); // x=0, y≈1.5
 
     if let Some(dfdx) = results.partials(&[1, 0]) {

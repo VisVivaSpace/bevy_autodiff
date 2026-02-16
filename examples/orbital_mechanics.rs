@@ -45,7 +45,16 @@ fn main() {
     println!("  dV/dy = {}", grad[1]);
     println!("  dV/dz = {}", grad[2]);
 
-    // Expected: dV/dx = mu * x / r^3
+    // Validate: autodiff gradient matches the analytical closed-form derivative.
+    // V = -mu/r, so dV/dx = mu*x/r^3. This is a closed-form f64 comparison
+    // with ~2 rounding operations, so 1e-10 (≈50ε relative) is conservative.
     let expected_dvdx = mu * x_val / r_val.powi(3);
     println!("\nExpected dV/dx = {}", expected_dvdx);
+    assert!(
+        (grad[0] - expected_dvdx).abs() < 1e-10 * expected_dvdx.abs(),
+        "autodiff dV/dx = {}, analytical = {}, diff = {:.2e}",
+        grad[0],
+        expected_dvdx,
+        (grad[0] - expected_dvdx).abs()
+    );
 }

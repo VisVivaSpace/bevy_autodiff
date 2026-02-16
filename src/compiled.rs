@@ -18,7 +18,8 @@ use crate::components::{
 };
 
 /// A node in the flattened computation graph.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum NodeOp {
     /// Read from `inputs[index]`.
     Input(usize),
@@ -73,6 +74,18 @@ pub struct CompiledGraph {
     input_node_indices: Vec<usize>,
     /// Reusable output buffer for gradient results (length = num_inputs).
     gradient_buf: Vec<f64>,
+    /// Whether eval() has been called at least once.
+    has_evaluated: bool,
+}
+
+impl std::fmt::Debug for CompiledGraph {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledGraph")
+            .field("nodes", &self.nodes.len())
+            .field("num_inputs", &self.num_inputs)
+            .field("partials", &self.partial_outputs.len())
+            .finish()
+    }
 }
 
 impl CompiledGraph {
@@ -108,6 +121,7 @@ impl CompiledGraph {
             adjoints: vec![0.0; num_nodes],
             input_node_indices,
             gradient_buf: vec![0.0; num_inputs],
+            has_evaluated: false,
         }
     }
 
@@ -137,12 +151,21 @@ impl CompiledGraph {
                 }
             };
         }
+        self.has_evaluated = true;
         Ok(())
     }
 
     /// Returns the function value from the most recent `eval()`.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `eval()` has been called at least once.
     #[inline]
     pub fn value(&self) -> f64 {
+        debug_assert!(
+            self.has_evaluated,
+            "CompiledGraph::value() called before eval()"
+        );
         self.values[self.output_index]
     }
 
@@ -155,6 +178,10 @@ impl CompiledGraph {
     /// Returns [`PartialNotCompiled`](crate::error::AutoDiffError::PartialNotCompiled) if the requested partial
     /// was not included when the graph was compiled.
     pub fn partial(&self, multi_index: &[usize]) -> Result<f64, crate::error::AutoDiffError> {
+        debug_assert!(
+            self.has_evaluated,
+            "CompiledGraph::partial() called before eval()"
+        );
         if let Some(&idx) = self.partial_lookup.get(multi_index) {
             return Ok(self.values[idx]);
         }
@@ -213,7 +240,15 @@ impl CompiledGraph {
     /// Must call `eval()` first so that forward values are populated.
     /// Returns a slice of length `num_inputs` where element `i` is
     /// `∂output/∂input_i`.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `eval()` has been called at least once.
     pub fn gradient(&mut self) -> &[f64] {
+        debug_assert!(
+            self.has_evaluated,
+            "CompiledGraph::gradient() called before eval()"
+        );
         self.gradient_of(self.output_index)
     }
 
@@ -235,6 +270,9 @@ impl CompiledGraph {
         // 3. Reverse sweep: walk from output_node down to node 0
         for i in (0..=output_node).rev() {
             let adj = self.adjoints[i];
+            // Bitwise zero check is sound here: adjoints are initialized to 0.0
+            // and only modified by seeding (= 1.0) or accumulation (+= adj * local).
+            // A node with adj == 0.0 contributes nothing downstream, so we skip it.
             if adj == 0.0 {
                 continue;
             }
@@ -299,21 +337,29 @@ pub(crate) fn flatten_graph(
                 nodes.push(NodeOp::Input(pos));
             } else {
                 // Input not in our compile list — freeze at current value
-                let val = entity_ref.get::<Value>()
-                    .expect("internal: IsInput entity must have Value").get();
+                let val = entity_ref
+                    .get::<Value>()
+                    .expect("internal: IsInput entity must have Value")
+                    .get();
                 nodes.push(NodeOp::Constant(val));
             }
         } else if entity_ref.contains::<IsConstant>() {
-            let val = entity_ref.get::<Value>()
-                .expect("internal: IsConstant entity must have Value").get();
+            let val = entity_ref
+                .get::<Value>()
+                .expect("internal: IsConstant entity must have Value")
+                .get();
             nodes.push(NodeOp::Constant(val));
         } else if let Some(&UnaryOpMarker(op)) = entity_ref.get::<UnaryOpMarker>() {
-            let src_entity = entity_ref.get::<UnaryInput>()
-                .expect("internal: UnaryOpMarker entity must have UnaryInput").get().entity();
+            let src_entity = entity_ref
+                .get::<UnaryInput>()
+                .expect("internal: UnaryOpMarker entity must have UnaryInput")
+                .get()
+                .entity();
             let src = entity_to_index[&src_entity];
             nodes.push(NodeOp::Unary { op, src });
         } else if let Some(&BinaryOpMarker(op)) = entity_ref.get::<BinaryOpMarker>() {
-            let binary = entity_ref.get::<BinaryInputs>()
+            let binary = entity_ref
+                .get::<BinaryInputs>()
                 .expect("internal: BinaryOpMarker entity must have BinaryInputs");
             let lhs = entity_to_index[&binary.left.entity()];
             let rhs = entity_to_index[&binary.right.entity()];
@@ -333,7 +379,7 @@ pub(crate) fn flatten_graph(
 // =============================================================================
 
 /// Generates all multi-indices of dimension `n` with total order 1..=max_order.
-pub fn generate_multi_indices(n: usize, max_order: usize) -> Vec<Vec<usize>> {
+pub(crate) fn generate_multi_indices(n: usize, max_order: usize) -> Vec<Vec<usize>> {
     let mut result = Vec::new();
     let mut current = vec![0usize; n];
     generate_helper(n, max_order, 0, &mut current, &mut result);
@@ -534,20 +580,32 @@ mod tests {
     #[test]
     fn test_unary_adjoint_sin() {
         let x: f64 = 0.7;
-        assert_relative_eq!(unary_adjoint(UnaryOp::Sin, x, x.sin()), x.cos(), epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Sin, x, x.sin()),
+            x.cos(),
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_cos() {
         let x: f64 = 0.7;
-        assert_relative_eq!(unary_adjoint(UnaryOp::Cos, x, x.cos()), -x.sin(), epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Cos, x, x.cos()),
+            -x.sin(),
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_tan() {
         let x: f64 = 0.7;
         let expected = 1.0 / (x.cos() * x.cos());
-        assert_relative_eq!(unary_adjoint(UnaryOp::Tan, x, x.tan()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Tan, x, x.tan()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
@@ -560,7 +618,11 @@ mod tests {
     #[test]
     fn test_unary_adjoint_ln() {
         let x: f64 = 2.0;
-        assert_relative_eq!(unary_adjoint(UnaryOp::Ln, x, x.ln()), 1.0 / x, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Ln, x, x.ln()),
+            1.0 / x,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
@@ -573,62 +635,98 @@ mod tests {
     #[test]
     fn test_unary_adjoint_sinh() {
         let x: f64 = 1.0;
-        assert_relative_eq!(unary_adjoint(UnaryOp::Sinh, x, x.sinh()), x.cosh(), epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Sinh, x, x.sinh()),
+            x.cosh(),
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_cosh() {
         let x: f64 = 1.0;
-        assert_relative_eq!(unary_adjoint(UnaryOp::Cosh, x, x.cosh()), x.sinh(), epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Cosh, x, x.cosh()),
+            x.sinh(),
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_tanh() {
         let x: f64 = 0.5;
         let z = x.tanh();
-        assert_relative_eq!(unary_adjoint(UnaryOp::Tanh, x, z), 1.0 - z * z, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Tanh, x, z),
+            1.0 - z * z,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_asin() {
         let x: f64 = 0.5;
         let expected = 1.0 / (1.0 - x * x).sqrt();
-        assert_relative_eq!(unary_adjoint(UnaryOp::Asin, x, x.asin()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Asin, x, x.asin()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_acos() {
         let x: f64 = 0.5;
         let expected = -1.0 / (1.0 - x * x).sqrt();
-        assert_relative_eq!(unary_adjoint(UnaryOp::Acos, x, x.acos()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Acos, x, x.acos()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_atan() {
         let x: f64 = 1.0;
         let expected = 1.0 / (1.0 + x * x);
-        assert_relative_eq!(unary_adjoint(UnaryOp::Atan, x, x.atan()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Atan, x, x.atan()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_asinh() {
         let x: f64 = 1.0;
         let expected = 1.0 / (x * x + 1.0).sqrt();
-        assert_relative_eq!(unary_adjoint(UnaryOp::Asinh, x, x.asinh()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Asinh, x, x.asinh()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_acosh() {
         let x: f64 = 2.0;
         let expected = 1.0 / (x * x - 1.0).sqrt();
-        assert_relative_eq!(unary_adjoint(UnaryOp::Acosh, x, x.acosh()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Acosh, x, x.acosh()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
     fn test_unary_adjoint_atanh() {
         let x: f64 = 0.5;
         let expected = 1.0 / (1.0 - x * x);
-        assert_relative_eq!(unary_adjoint(UnaryOp::Atanh, x, x.atanh()), expected, epsilon = 1e-12);
+        assert_relative_eq!(
+            unary_adjoint(UnaryOp::Atanh, x, x.atanh()),
+            expected,
+            epsilon = 1e-12
+        );
     }
 
     #[test]
@@ -762,9 +860,15 @@ mod tests {
     fn test_gradient_deep_chain() {
         // f(x) = sin(exp(x)), df/dx = cos(exp(x)) * exp(x)
         let nodes = vec![
-            NodeOp::Input(0),                               // node 0: x
-            NodeOp::Unary { op: UnaryOp::Exp, src: 0 },    // node 1: exp(x)
-            NodeOp::Unary { op: UnaryOp::Sin, src: 1 },    // node 2: sin(exp(x))
+            NodeOp::Input(0), // node 0: x
+            NodeOp::Unary {
+                op: UnaryOp::Exp,
+                src: 0,
+            }, // node 1: exp(x)
+            NodeOp::Unary {
+                op: UnaryOp::Sin,
+                src: 1,
+            }, // node 2: sin(exp(x))
         ];
 
         let mut cg = CompiledGraph::new(nodes, 1, 2, vec![]);

@@ -91,10 +91,12 @@ pub fn autodiff(attr: TokenStream, item: TokenStream) -> TokenStream {
     let stable_derivatives = if attr.is_empty() {
         false
     } else {
-        let ident: syn::Ident = syn::parse(attr)
-            .expect("expected `stable_derivatives`");
+        let ident: syn::Ident = match syn::parse(attr) {
+            Ok(ident) => ident,
+            Err(e) => return syn::Error::new(e.span(), "expected `stable_derivatives`").to_compile_error().into(),
+        };
         if ident != "stable_derivatives" {
-            panic!("unknown autodiff attribute: `{ident}`. Expected `stable_derivatives`.");
+            return syn::Error::new(ident.span(), format!("unknown autodiff attribute: `{ident}`. Expected `stable_derivatives`.")).to_compile_error().into();
         }
         true
     };

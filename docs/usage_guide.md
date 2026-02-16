@@ -177,11 +177,11 @@ assert_eq!(ad.eval(f).unwrap(), 11.0);  // f(2) = 4 + 6 + 1
 The builder API exposes the symbolic differentiation primitive directly:
 
 ```rust
-let dfdx = ad.differentiate(f, x);
+let dfdx = ad.differentiate(f, x).unwrap();
 assert_eq!(ad.eval(dfdx).unwrap(), 7.0);  // f'(2) = 2·2 + 3
 
 // Higher-order via successive differentiation
-let d2fdx2 = ad.differentiate(dfdx, x);
+let d2fdx2 = ad.differentiate(dfdx, x).unwrap();
 assert_eq!(ad.eval(d2fdx2).unwrap(), 2.0);  // f''(x) = 2
 ```
 
@@ -227,7 +227,7 @@ let d2mix  = cg.partial(&[1, 1]).unwrap();  // d²f/dxdy
 | Method | Derivatives | Cost per eval | Use case |
 |--------|------------|---------------|----------|
 | `compile_primal` + `gradient()` | First-order only | O(graph) regardless of inputs | Optimization, sensitivity analysis |
-| `compile_order(f, inputs, n)` | Up to order `n` | O(graph × partials) | Hessians, Taylor coefficients |
+| `compile_order(f, inputs, n)` | Up to order `n` | O(graph × partials) | Hessians, mixed partials |
 
 ### Cloning for Multiple Evaluations
 

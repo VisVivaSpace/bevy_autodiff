@@ -67,7 +67,11 @@ fn test_addition_associativity() {
                 let bc = ad.add(b, c);
                 let right = ad.add(a, bc); // a + (b + c)
 
-                assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-10);
+                assert_relative_eq!(
+                    ad.eval(left).unwrap(),
+                    ad.eval(right).unwrap(),
+                    epsilon = 1e-10
+                );
             }
         }
     }
@@ -90,7 +94,11 @@ fn test_multiplication_associativity() {
                 let bc = ad.mul(b, c);
                 let right = ad.mul(a, bc);
 
-                assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-10);
+                assert_relative_eq!(
+                    ad.eval(left).unwrap(),
+                    ad.eval(right).unwrap(),
+                    epsilon = 1e-10
+                );
             }
         }
     }
@@ -114,7 +122,11 @@ fn test_distributivity() {
                 let ac = ad.mul(a, c);
                 let right = ad.add(ab, ac); // a*b + a*c
 
-                assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-10);
+                assert_relative_eq!(
+                    ad.eval(left).unwrap(),
+                    ad.eval(right).unwrap(),
+                    epsilon = 1e-10
+                );
             }
         }
     }
@@ -259,7 +271,11 @@ fn test_exp_addition_law() {
             let exp_b = ad.exp(b);
             let right = ad.mul(exp_a, exp_b); // exp(a) * exp(b)
 
-            assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-10);
+            assert_relative_eq!(
+                ad.eval(left).unwrap(),
+                ad.eval(right).unwrap(),
+                epsilon = 1e-10
+            );
         }
     }
 }
@@ -280,7 +296,11 @@ fn test_ln_multiplication_law() {
             let ln_b = ad.ln(b);
             let right = ad.add(ln_a, ln_b); // ln(a) + ln(b)
 
-            assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-10);
+            assert_relative_eq!(
+                ad.eval(left).unwrap(),
+                ad.eval(right).unwrap(),
+                epsilon = 1e-10
+            );
         }
     }
 }
@@ -332,7 +352,11 @@ fn test_power_multiplication_law() {
 
                 let right = ad.powf(x, a_val + b_val); // x^(a+b)
 
-                assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-9);
+                assert_relative_eq!(
+                    ad.eval(left).unwrap(),
+                    ad.eval(right).unwrap(),
+                    epsilon = 1e-9
+                );
             }
         }
     }
@@ -352,7 +376,11 @@ fn test_power_power_law() {
 
                 let right = ad.powf(x, a_val * b_val); // x^(a*b)
 
-                assert_relative_eq!(ad.eval(left).unwrap(), ad.eval(right).unwrap(), epsilon = 1e-9);
+                assert_relative_eq!(
+                    ad.eval(left).unwrap(),
+                    ad.eval(right).unwrap(),
+                    epsilon = 1e-9
+                );
             }
         }
     }
@@ -381,7 +409,11 @@ fn test_derivative_of_sum_is_sum_of_derivatives() {
         let dg = ad.differentiate(g, x).unwrap();
         let sum_d = ad.add(df, dg);
 
-        assert_relative_eq!(ad.eval(d_sum).unwrap(), ad.eval(sum_d).unwrap(), epsilon = 1e-10);
+        assert_relative_eq!(
+            ad.eval(d_sum).unwrap(),
+            ad.eval(sum_d).unwrap(),
+            epsilon = 1e-10
+        );
     }
 }
 
@@ -404,7 +436,11 @@ fn test_derivative_of_product_is_product_rule() {
         let f_dg = ad.mul(f, dg);
         let product_rule = ad.add(df_g, f_dg);
 
-        assert_relative_eq!(ad.eval(d_fg).unwrap(), ad.eval(product_rule).unwrap(), epsilon = 1e-10);
+        assert_relative_eq!(
+            ad.eval(d_fg).unwrap(),
+            ad.eval(product_rule).unwrap(),
+            epsilon = 1e-10
+        );
     }
 }
 
@@ -442,7 +478,11 @@ fn test_derivative_linearity() {
         let b_dg = ad.mul(b, dg);
         let expected = ad.add(a_df, b_dg);
 
-        assert_relative_eq!(ad.eval(d_combo).unwrap(), ad.eval(expected).unwrap(), epsilon = 1e-10);
+        assert_relative_eq!(
+            ad.eval(d_combo).unwrap(),
+            ad.eval(expected).unwrap(),
+            epsilon = 1e-10
+        );
     }
 }
 
@@ -482,7 +522,11 @@ fn test_mixed_partial_symmetry() {
             let dfdy = ad.differentiate(f, y).unwrap();
             let d2fdydx = ad.differentiate(dfdy, x).unwrap();
 
-            assert_relative_eq!(ad.eval(d2fdxdy).unwrap(), ad.eval(d2fdydx).unwrap(), epsilon = 1e-10);
+            assert_relative_eq!(
+                ad.eval(d2fdxdy).unwrap(),
+                ad.eval(d2fdydx).unwrap(),
+                epsilon = 1e-10
+            );
         }
     }
 }
@@ -582,5 +626,9 @@ fn test_negative_values() {
     let pos = ad.var(2.0).unwrap();
     let sin_neg = ad.sin(neg);
     let sin_pos = ad.sin(pos);
-    assert_relative_eq!(ad.eval(sin_neg).unwrap(), -ad.eval(sin_pos).unwrap(), epsilon = 1e-10);
+    assert_relative_eq!(
+        ad.eval(sin_neg).unwrap(),
+        -ad.eval(sin_pos).unwrap(),
+        epsilon = 1e-10
+    );
 }

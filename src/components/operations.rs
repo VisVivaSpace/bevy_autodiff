@@ -5,6 +5,7 @@ use bevy_entity_ptr::EntityHandle;
 
 /// Unary operation types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum UnaryOp {
     /// Negation: -x
     Neg,
@@ -66,6 +67,7 @@ impl UnaryOp {
 
 /// Binary operation types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BinaryOp {
     /// Addition: x + y
     Add,

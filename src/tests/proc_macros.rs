@@ -773,7 +773,9 @@ fn test_autodiff_asin_acos_sum() {
     // asin(x) + acos(x) = π/2 for all x in [-1, 1]
     let f1 = arc_sin(&mut ad, x);
     let f2 = arc_cos(&mut ad, x);
-    assert!((ad.eval(f1).unwrap() + ad.eval(f2).unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+    assert!(
+        (ad.eval(f1).unwrap() + ad.eval(f2).unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-10
+    );
 }
 
 #[test]

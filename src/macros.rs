@@ -23,7 +23,8 @@
 //! - **Unary negation**: `-x`
 //! - **Functions**: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`,
 //!   `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `square`
-//! - **Power function**: `pow(base, exp)` (both arguments may be full expressions)
+//! - **Power functions**: `pow(base, exp)`, `powi(x, n)`, `powf(x, p)`
+//! - **Logarithmic variants**: `pow_log(base, exp)`, `powi_log(x, n)`, `powf_log(x, p)`, `div_log(a, b)`
 //! - **Float literals**: automatically wrapped as `ad.constant()`
 //! - **Parentheses**: `(expr)` for grouping
 //!
@@ -33,6 +34,7 @@
 //! - `*`, `/` bind tighter than `+`, `-`
 //! - Unary `-` binds tighter than binary operators
 //! - Function calls and parentheses bind tightest
+//! - All operators are **left-associative**: `a - b - c` = `(a - b) - c`
 //!
 //! # Limitations
 //!
@@ -104,37 +106,34 @@
 #[macro_export]
 macro_rules! expr {
     // Entry point: start at additive level with empty accumulator
-    // Format: @add_munch $ad, {$accumulated}, $rest...
     ($ad:ident, $($tokens:tt)+) => {
         $crate::expr!(@add_munch $ad, {}, $($tokens)+ @end)
     };
 
     // ============================================================
     // ADDITIVE LEVEL: Munch tokens looking for + or -
-    // Format: @add_munch $ad, {$accumulated}, next rest...
+    // When an operator is found, evaluate the left side and enter
+    // the fold loop for left-associative evaluation.
     // ============================================================
 
     // End marker: no + or - found, pass to multiplicative
-    (@add_munch $ad:ident, {$($acc:tt)*}, @end) => {
-        $crate::expr!(@mul_munch $ad, {}, $($acc)* @end)
+    (@add_munch $ad:ident, {$($acc:tt)+}, @end) => {
+        $crate::expr!(@mul_munch $ad, {}, $($acc)+ @end)
     };
 
-    // Found + at additive level
-    (@add_munch $ad:ident, {$($left:tt)*}, + $($rest:tt)+) => {{
-        let lhs = $crate::expr!(@mul_munch $ad, {}, $($left)* @end);
-        let rhs = $crate::expr!(@add_munch $ad, {}, $($rest)+);
-        $ad.add(lhs, rhs)
+    // Found + at additive level: evaluate left, enter fold
+    (@add_munch $ad:ident, {$($left:tt)+}, + $($rest:tt)+) => {{
+        let __lhs = $crate::expr!(@mul_munch $ad, {}, $($left)+ @end);
+        $crate::expr!(@add_fold $ad, __lhs, +, {}, $($rest)+)
     }};
 
-    // Found - at additive level with NON-EMPTY left side (binary minus)
+    // Found binary - (non-empty left): evaluate left, enter fold
     (@add_munch $ad:ident, {$($left:tt)+}, - $($rest:tt)+) => {{
-        let lhs = $crate::expr!(@mul_munch $ad, {}, $($left)+ @end);
-        let rhs = $crate::expr!(@add_munch $ad, {}, $($rest)+);
-        $ad.sub(lhs, rhs)
+        let __lhs = $crate::expr!(@mul_munch $ad, {}, $($left)+ @end);
+        $crate::expr!(@add_fold $ad, __lhs, -, {}, $($rest)+)
     }};
 
-    // Found - at additive level with EMPTY left side (unary minus) - pass to mul level
-    // Note: $rest already contains @end from the entry point
+    // Found unary - (empty left): pass to mul level
     (@add_munch $ad:ident, {}, - $($rest:tt)+) => {
         $crate::expr!(@mul_munch $ad, {}, - $($rest)+)
     };
@@ -150,27 +149,69 @@ macro_rules! expr {
     };
 
     // ============================================================
-    // MULTIPLICATIVE LEVEL: Munch tokens looking for * or /
+    // ADDITIVE FOLD: Left-associative folding for + and -
+    //
+    // State: (@add_fold $ad, $lhs_value, $pending_op, {$rhs_accumulator}, remaining_tokens...)
+    // $lhs_value is an already-evaluated expression (via let binding)
+    // $pending_op is + or - (the operator to apply once we have the rhs term)
+    // $rhs_accumulator collects tokens for the next multiplicative term
     // ============================================================
 
-    // End marker: no * or / found, pass to unary (with at least one token)
+    // Helpers to apply the pending operator
+    (@apply_add $ad:ident, $lhs:expr, +, $rhs:expr) => { $ad.add($lhs, $rhs) };
+    (@apply_add $ad:ident, $lhs:expr, -, $rhs:expr) => { $ad.sub($lhs, $rhs) };
+
+    // @end: evaluate accumulated rhs, apply pending op, done
+    (@add_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, @end) => {{
+        let __rhs = $crate::expr!(@mul_munch $ad, {}, $($rhs)+ @end);
+        $crate::expr!(@apply_add $ad, $lhs, $op, __rhs)
+    }};
+
+    // Found +: evaluate accumulated rhs, apply pending op, continue with +
+    (@add_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, + $($rest:tt)+) => {{
+        let __rhs = $crate::expr!(@mul_munch $ad, {}, $($rhs)+ @end);
+        let __result = $crate::expr!(@apply_add $ad, $lhs, $op, __rhs);
+        $crate::expr!(@add_fold $ad, __result, +, {}, $($rest)+)
+    }};
+
+    // Found -: evaluate accumulated rhs, apply pending op, continue with -
+    // Note: requires non-empty accumulator to distinguish from unary minus
+    (@add_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, - $($rest:tt)+) => {{
+        let __rhs = $crate::expr!(@mul_munch $ad, {}, $($rhs)+ @end);
+        let __result = $crate::expr!(@apply_add $ad, $lhs, $op, __rhs);
+        $crate::expr!(@add_fold $ad, __result, -, {}, $($rest)+)
+    }};
+
+    // Parenthesized group: accumulate as unit
+    (@add_fold $ad:ident, $lhs:expr, $op:tt, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@add_fold $ad, $lhs, $op, {$($acc)* ($($inner)*)}, $($rest)*)
+    };
+
+    // Any other token: accumulate
+    (@add_fold $ad:ident, $lhs:expr, $op:tt, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@add_fold $ad, $lhs, $op, {$($acc)* $tok}, $($rest)*)
+    };
+
+    // ============================================================
+    // MULTIPLICATIVE LEVEL: Munch tokens looking for * or /
+    // Same left-associative fold pattern as additive level.
+    // ============================================================
+
+    // End marker: no * or / found, pass to unary
     (@mul_munch $ad:ident, {$($acc:tt)+}, @end) => {
         $crate::expr!(@unary $ad, $($acc)+)
     };
 
-
-    // Found * at multiplicative level
-    (@mul_munch $ad:ident, {$($left:tt)*}, * $($rest:tt)+) => {{
-        let lhs = $crate::expr!(@unary $ad, $($left)*);
-        let rhs = $crate::expr!(@mul_munch $ad, {}, $($rest)+);
-        $ad.mul(lhs, rhs)
+    // Found * at multiplicative level: evaluate left, enter fold
+    (@mul_munch $ad:ident, {$($left:tt)+}, * $($rest:tt)+) => {{
+        let __lhs = $crate::expr!(@unary $ad, $($left)+);
+        $crate::expr!(@mul_fold $ad, __lhs, *, {}, $($rest)+)
     }};
 
-    // Found / at multiplicative level
-    (@mul_munch $ad:ident, {$($left:tt)*}, / $($rest:tt)+) => {{
-        let lhs = $crate::expr!(@unary $ad, $($left)*);
-        let rhs = $crate::expr!(@mul_munch $ad, {}, $($rest)+);
-        $ad.div(lhs, rhs)
+    // Found / at multiplicative level: evaluate left, enter fold
+    (@mul_munch $ad:ident, {$($left:tt)+}, / $($rest:tt)+) => {{
+        let __lhs = $crate::expr!(@unary $ad, $($left)+);
+        $crate::expr!(@mul_fold $ad, __lhs, /, {}, $($rest)+)
     }};
 
     // Parenthesized group: add to accumulator, continue
@@ -181,6 +222,44 @@ macro_rules! expr {
     // Any other token: add to accumulator, continue
     (@mul_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
         $crate::expr!(@mul_munch $ad, {$($acc)* $tok}, $($rest)*)
+    };
+
+    // ============================================================
+    // MULTIPLICATIVE FOLD: Left-associative folding for * and /
+    // ============================================================
+
+    // Helpers to apply the pending operator
+    (@apply_mul $ad:ident, $lhs:expr, *, $rhs:expr) => { $ad.mul($lhs, $rhs) };
+    (@apply_mul $ad:ident, $lhs:expr, /, $rhs:expr) => { $ad.div($lhs, $rhs) };
+
+    // @end: evaluate accumulated rhs, apply pending op, done
+    (@mul_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, @end) => {{
+        let __rhs = $crate::expr!(@unary $ad, $($rhs)+);
+        $crate::expr!(@apply_mul $ad, $lhs, $op, __rhs)
+    }};
+
+    // Found *: evaluate accumulated rhs, apply pending op, continue with *
+    (@mul_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, * $($rest:tt)+) => {{
+        let __rhs = $crate::expr!(@unary $ad, $($rhs)+);
+        let __result = $crate::expr!(@apply_mul $ad, $lhs, $op, __rhs);
+        $crate::expr!(@mul_fold $ad, __result, *, {}, $($rest)+)
+    }};
+
+    // Found /: evaluate accumulated rhs, apply pending op, continue with /
+    (@mul_fold $ad:ident, $lhs:expr, $op:tt, {$($rhs:tt)+}, / $($rest:tt)+) => {{
+        let __rhs = $crate::expr!(@unary $ad, $($rhs)+);
+        let __result = $crate::expr!(@apply_mul $ad, $lhs, $op, __rhs);
+        $crate::expr!(@mul_fold $ad, __result, /, {}, $($rest)+)
+    }};
+
+    // Parenthesized group: accumulate
+    (@mul_fold $ad:ident, $lhs:expr, $op:tt, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@mul_fold $ad, $lhs, $op, {$($acc)* ($($inner)*)}, $($rest)*)
+    };
+
+    // Any other token: accumulate
+    (@mul_fold $ad:ident, $lhs:expr, $op:tt, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@mul_fold $ad, $lhs, $op, {$($acc)* $tok}, $($rest)*)
     };
 
     // ============================================================
@@ -205,7 +284,7 @@ macro_rules! expr {
         $crate::expr!(@add_munch $ad, {}, $($inner)+ @end)
     };
 
-    // Function calls — all 16 unary ops + square + pow
+    // Function calls — all 16 unary ops + square + pow variants
 
     (@atom $ad:ident, sin ($($arg:tt)+)) => {{
         let arg = $crate::expr!(@add_munch $ad, {}, $($arg)+ @end);
@@ -287,19 +366,29 @@ macro_rules! expr {
         $ad.square(arg)
     }};
 
-    // pow(base, exp) — uses comma-munching to accept full expressions
+    // Binary function calls: both args are Var expressions
     (@atom $ad:ident, pow ($($args:tt)+)) => {
-        $crate::expr!(@pow_munch $ad, {}, $($args)+)
+        $crate::expr!(@comma_munch $ad, pow, {}, $($args)+)
     };
-
-    // pow_log(base, exp) — logarithmic differentiation variant of pow
     (@atom $ad:ident, pow_log ($($args:tt)+)) => {
-        $crate::expr!(@pow_log_munch $ad, {}, $($args)+)
+        $crate::expr!(@comma_munch $ad, pow_log, {}, $($args)+)
+    };
+    (@atom $ad:ident, div_log ($($args:tt)+)) => {
+        $crate::expr!(@comma_munch $ad, div_log, {}, $($args)+)
     };
 
-    // div_log(a, b) — logarithmic differentiation variant of division
-    (@atom $ad:ident, div_log ($($args:tt)+)) => {
-        $crate::expr!(@div_log_munch $ad, {}, $($args)+)
+    // Binary function calls: first arg is Var, second arg is a scalar (i32 or f64)
+    (@atom $ad:ident, powi ($($args:tt)+)) => {
+        $crate::expr!(@scalar_munch $ad, powi, {}, $($args)+)
+    };
+    (@atom $ad:ident, powf ($($args:tt)+)) => {
+        $crate::expr!(@scalar_munch $ad, powf, {}, $($args)+)
+    };
+    (@atom $ad:ident, powi_log ($($args:tt)+)) => {
+        $crate::expr!(@scalar_munch $ad, powi_log, {}, $($args)+)
+    };
+    (@atom $ad:ident, powf_log ($($args:tt)+)) => {
+        $crate::expr!(@scalar_munch $ad, powf_log, {}, $($args)+)
     };
 
     // Unsupported function name — helpful error message
@@ -307,7 +396,8 @@ macro_rules! expr {
         compile_error!(concat!(
             "unsupported function `", stringify!($unknown), "` in expr! macro. ",
             "Supported: sin, cos, tan, exp, ln, sqrt, sinh, cosh, tanh, ",
-            "asin, acos, atan, asinh, acosh, atanh, pow, pow_log, div_log, square"
+            "asin, acos, atan, asinh, acosh, atanh, square, ",
+            "pow, powi, powf, pow_log, powi_log, powf_log, div_log"
         ))
     };
 
@@ -322,60 +412,46 @@ macro_rules! expr {
     };
 
     // ============================================================
-    // POW COMMA-MUNCH: Find comma separator in pow(base, exp)
+    // COMMA-MUNCH: Unified two-argument function parsing
+    // Finds comma separator in func(arg1, arg2)
     // ============================================================
 
-    // Found comma: left of comma is base, right is exponent
-    (@pow_munch $ad:ident, {$($base:tt)+}, , $($exp:tt)+) => {{
-        let base = $crate::expr!(@add_munch $ad, {}, $($base)+ @end);
-        let exp_val = $crate::expr!(@add_munch $ad, {}, $($exp)+ @end);
-        $ad.pow(base, exp_val)
+    // Found comma: left of comma is first arg, right is second arg
+    (@comma_munch $ad:ident, $func:ident, {$($lhs:tt)+}, , $($rhs:tt)+) => {{
+        let __a = $crate::expr!(@add_munch $ad, {}, $($lhs)+ @end);
+        let __b = $crate::expr!(@add_munch $ad, {}, $($rhs)+ @end);
+        $ad.$func(__a, __b)
     }};
 
-    // Parenthesized group in pow args: accumulate as unit
-    (@pow_munch $ad:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
-        $crate::expr!(@pow_munch $ad, {$($acc)* ($($inner)*)}, $($rest)*)
+    // Parenthesized group in function args: accumulate as unit
+    (@comma_munch $ad:ident, $func:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@comma_munch $ad, $func, {$($acc)* ($($inner)*)}, $($rest)*)
     };
 
-    // Any other token in pow args: accumulate and continue
-    (@pow_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
-        $crate::expr!(@pow_munch $ad, {$($acc)* $tok}, $($rest)*)
+    // Any other token in function args: accumulate and continue
+    (@comma_munch $ad:ident, $func:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@comma_munch $ad, $func, {$($acc)* $tok}, $($rest)*)
     };
 
     // ============================================================
-    // POW_LOG COMMA-MUNCH: Find comma separator in pow_log(base, exp)
+    // SCALAR-MUNCH: Two-argument functions where first arg is Var,
+    // second arg is a scalar literal (i32 for powi, f64 for powf)
     // ============================================================
 
-    (@pow_log_munch $ad:ident, {$($base:tt)+}, , $($exp:tt)+) => {{
-        let base = $crate::expr!(@add_munch $ad, {}, $($base)+ @end);
-        let exp_val = $crate::expr!(@add_munch $ad, {}, $($exp)+ @end);
-        $ad.pow_log(base, exp_val)
+    // Found comma: left is Var expression, right is scalar literal
+    (@scalar_munch $ad:ident, $func:ident, {$($lhs:tt)+}, , $($rhs:tt)+) => {{
+        let __a = $crate::expr!(@add_munch $ad, {}, $($lhs)+ @end);
+        $ad.$func(__a, $($rhs)+)
     }};
 
-    (@pow_log_munch $ad:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
-        $crate::expr!(@pow_log_munch $ad, {$($acc)* ($($inner)*)}, $($rest)*)
+    // Parenthesized group: accumulate as unit
+    (@scalar_munch $ad:ident, $func:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
+        $crate::expr!(@scalar_munch $ad, $func, {$($acc)* ($($inner)*)}, $($rest)*)
     };
 
-    (@pow_log_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
-        $crate::expr!(@pow_log_munch $ad, {$($acc)* $tok}, $($rest)*)
-    };
-
-    // ============================================================
-    // DIV_LOG COMMA-MUNCH: Find comma separator in div_log(a, b)
-    // ============================================================
-
-    (@div_log_munch $ad:ident, {$($lhs:tt)+}, , $($rhs:tt)+) => {{
-        let lhs = $crate::expr!(@add_munch $ad, {}, $($lhs)+ @end);
-        let rhs = $crate::expr!(@add_munch $ad, {}, $($rhs)+ @end);
-        $ad.div_log(lhs, rhs)
-    }};
-
-    (@div_log_munch $ad:ident, {$($acc:tt)*}, ($($inner:tt)*) $($rest:tt)*) => {
-        $crate::expr!(@div_log_munch $ad, {$($acc)* ($($inner)*)}, $($rest)*)
-    };
-
-    (@div_log_munch $ad:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
-        $crate::expr!(@div_log_munch $ad, {$($acc)* $tok}, $($rest)*)
+    // Any other token: accumulate and continue
+    (@scalar_munch $ad:ident, $func:ident, {$($acc:tt)*}, $tok:tt $($rest:tt)*) => {
+        $crate::expr!(@scalar_munch $ad, $func, {$($acc)* $tok}, $($rest)*)
     };
 }
 
@@ -582,7 +658,89 @@ mod tests {
         assert_relative_eq!(ad.eval(f).unwrap(), 1.0_f64.sin(), epsilon = 1e-10);
     }
 
-    // --- Phase 2: New tests for missing ops ---
+    // --- Associativity tests ---
+
+    #[test]
+    fn test_expr_subtraction_left_associative() {
+        let mut ad = AutoDiff::new();
+        // 10 - 3 - 2 should be (10 - 3) - 2 = 5, not 10 - (3 - 2) = 9
+        let f = expr!(ad, 10.0 - 3.0 - 2.0);
+        assert_eq!(ad.eval(f).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_expr_division_left_associative() {
+        let mut ad = AutoDiff::new();
+        // 24 / 4 / 2 should be (24 / 4) / 2 = 3, not 24 / (4 / 2) = 12
+        let f = expr!(ad, 24.0 / 4.0 / 2.0);
+        assert_eq!(ad.eval(f).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_expr_mixed_add_sub_chain() {
+        let mut ad = AutoDiff::new();
+        let a = ad.var(10.0).unwrap();
+        let b = ad.var(3.0).unwrap();
+        let c = ad.var(2.0).unwrap();
+        let d = ad.var(1.0).unwrap();
+
+        // a - b + c - d = (((10 - 3) + 2) - 1) = 8
+        let f = expr!(ad, a - b + c - d);
+        assert_eq!(ad.eval(f).unwrap(), 8.0);
+    }
+
+    #[test]
+    fn test_expr_mixed_mul_div_chain() {
+        let mut ad = AutoDiff::new();
+        let a = ad.var(24.0).unwrap();
+        let b = ad.var(4.0).unwrap();
+        let c = ad.var(3.0).unwrap();
+        let d = ad.var(2.0).unwrap();
+
+        // a / b * c / d = (((24 / 4) * 3) / 2) = 9
+        let f = expr!(ad, a / b * c / d);
+        assert_eq!(ad.eval(f).unwrap(), 9.0);
+    }
+
+    #[test]
+    fn test_expr_sub_then_add() {
+        let mut ad = AutoDiff::new();
+        // 5 - 3 + 1 should be (5 - 3) + 1 = 3
+        let f = expr!(ad, 5.0 - 3.0 + 1.0);
+        assert_eq!(ad.eval(f).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_expr_div_then_mul() {
+        let mut ad = AutoDiff::new();
+        // 6 / 2 * 3 should be (6 / 2) * 3 = 9
+        let f = expr!(ad, 6.0 / 2.0 * 3.0);
+        assert_eq!(ad.eval(f).unwrap(), 9.0);
+    }
+
+    #[test]
+    fn test_expr_unary_neg_after_operator() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0).unwrap();
+        let y = ad.var(2.0).unwrap();
+
+        // x + -y = 3 + (-2) = 1
+        let f = expr!(ad, x + -y);
+        assert_eq!(ad.eval(f).unwrap(), 1.0);
+    }
+
+    #[test]
+    fn test_expr_double_negation() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(5.0).unwrap();
+        let y = ad.var(3.0).unwrap();
+
+        // x - -y = x - (-y) = 5 - (-3) = 8
+        let f = expr!(ad, x - -y);
+        assert_eq!(ad.eval(f).unwrap(), 8.0);
+    }
+
+    // --- Phase 2: Function coverage tests ---
 
     #[test]
     fn test_expr_tan() {
@@ -676,6 +834,24 @@ mod tests {
     }
 
     #[test]
+    fn test_expr_powi() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0).unwrap();
+        // powi(x, 2) = 3^2 = 9
+        let f = expr!(ad, powi(x, 2));
+        assert_relative_eq!(ad.eval(f).unwrap(), 9.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_powf() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(4.0).unwrap();
+        // powf(x, 0.5) = sqrt(4) = 2
+        let f = expr!(ad, powf(x, 0.5));
+        assert_relative_eq!(ad.eval(f).unwrap(), 2.0, epsilon = 1e-10);
+    }
+
+    #[test]
     fn test_expr_pow_log() {
         let mut ad = AutoDiff::new();
         let x = ad.var(2.0).unwrap();
@@ -692,6 +868,24 @@ mod tests {
         // pow_log(x + 1, 2.0) = 3^2 = 9
         let f = expr!(ad, pow_log(x + 1.0, 2.0));
         assert_relative_eq!(ad.eval(f).unwrap(), 9.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_powi_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(3.0).unwrap();
+        // powi_log(x, 2) = 3^2 = 9
+        let f = expr!(ad, powi_log(x, 2));
+        assert_relative_eq!(ad.eval(f).unwrap(), 9.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_expr_powf_log() {
+        let mut ad = AutoDiff::new();
+        let x = ad.var(4.0).unwrap();
+        // powf_log(x, 0.5) = sqrt(4) = 2
+        let f = expr!(ad, powf_log(x, 0.5));
+        assert_relative_eq!(ad.eval(f).unwrap(), 2.0, epsilon = 1e-10);
     }
 
     #[test]

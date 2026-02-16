@@ -4,6 +4,16 @@ Automatic differentiation using [Bevy ECS](https://bevyengine.org/) as the compu
 
 Write normal Rust functions, get exact derivatives — including gradients, Jacobians, and Hessians. GPU batch evaluation, WGSL code generation, and native Bevy ECS integration included.
 
+## Why bevy_autodiff?
+
+**Arbitrary-order exact derivatives.** Most Rust AD crates provide first-order gradients. `bevy_autodiff` computes exact partial derivatives to any order — second-order Hessians, third-order tensors, mixed partials — via successive symbolic differentiation. No finite differences, no truncation.
+
+**GPU batch evaluation.** Evaluate a compiled function and all its derivatives at millions of input points in parallel on the GPU. Generate standalone WGSL shader functions from any compiled graph. As far as we know, no other Rust AD crate offers either capability.
+
+**Data-oriented design.** Most AD libraries represent computation graphs as opaque internal structures with behavior baked in. `bevy_autodiff` takes a different approach: the graph *is* ECS data. Variables are entities, operations are components, and differentiation is a pure traversal that reads the graph and writes new entities. Data is separated from code at every level — a direct application of [data-oriented programming](https://en.wikipedia.org/wiki/Data-oriented_design) to automatic differentiation. The compiled output (`CompiledGraph`) is a flat, cache-friendly array with no entity references or indirection.
+
+This design makes the graph open and extensible: adding new metadata to nodes is just adding a new component. It also means `CompiledGraph` is a Bevy `Component` and `Resource` out of the box — compiled graphs live directly in your app's ECS, evaluated in parallel with `par_iter_mut()`.
+
 ## Features
 
 - **Write normal Rust functions, get exact derivatives** — `#[autodiff]` transforms regular functions into computation graphs
@@ -146,7 +156,7 @@ let y = ad.var(0.0).unwrap();
 let f = ad.add(ad.sin(ad.mul(x, y)), ad.exp(x));
 let graph = ad.compile_order(f, &[x, y], 1).unwrap();
 
-let wgsl = graph.to_wgsl("my_func");
+let wgsl = graph.to_wgsl("my_func").unwrap();
 ```
 
 This emits a self-contained WGSL snippet with a result struct and a pure function using direct WGSL expressions (no interpreter loop):
@@ -283,7 +293,7 @@ let f = ad.add(sum, one);
 assert_eq!(ad.eval(f).unwrap(), 11.0); // f(2) = 4 + 6 + 1
 
 // Symbolic differentiation
-let dfdx = ad.differentiate(f, x);
+let dfdx = ad.differentiate(f, x).unwrap();
 assert_eq!(ad.eval(dfdx).unwrap(), 7.0);  // f'(2) = 2·2 + 3
 
 // Higher-order via successive differentiation

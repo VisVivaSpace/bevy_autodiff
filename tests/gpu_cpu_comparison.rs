@@ -7,8 +7,8 @@
 
 #![cfg(feature = "wgpu")]
 
-use bevy_autodiff::gpu::GpuContext;
 use bevy_autodiff::AutoDiff;
+use bevy_autodiff::gpu::GpuContext;
 
 fn gpu() -> Option<GpuContext> {
     GpuContext::new().ok()
@@ -73,121 +73,73 @@ fn gpu_cpu_tan() {
 #[test]
 fn gpu_cpu_exp() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.exp(x),
-        &[-1.0, 0.0, 0.5, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.exp(x), &[-1.0, 0.0, 0.5, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_ln() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.ln(x),
-        &[0.1, 0.5, 1.0, 2.0, 10.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.ln(x), &[0.1, 0.5, 1.0, 2.0, 10.0]);
 }
 
 #[test]
 fn gpu_cpu_sqrt() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.sqrt(x),
-        &[0.01, 0.25, 1.0, 4.0, 9.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.sqrt(x), &[0.01, 0.25, 1.0, 4.0, 9.0]);
 }
 
 #[test]
 fn gpu_cpu_sinh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.sinh(x),
-        &[-1.0, 0.0, 0.5, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.sinh(x), &[-1.0, 0.0, 0.5, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_cosh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.cosh(x),
-        &[-1.0, 0.0, 0.5, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.cosh(x), &[-1.0, 0.0, 0.5, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_tanh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.tanh(x),
-        &[-2.0, -1.0, 0.0, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.tanh(x), &[-2.0, -1.0, 0.0, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_asin() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.asin(x),
-        &[-0.9, -0.5, 0.0, 0.5, 0.9],
-    );
+    compare_unary(&ctx, |ad, x| ad.asin(x), &[-0.9, -0.5, 0.0, 0.5, 0.9]);
 }
 
 #[test]
 fn gpu_cpu_acos() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.acos(x),
-        &[-0.9, -0.5, 0.0, 0.5, 0.9],
-    );
+    compare_unary(&ctx, |ad, x| ad.acos(x), &[-0.9, -0.5, 0.0, 0.5, 0.9]);
 }
 
 #[test]
 fn gpu_cpu_atan() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.atan(x),
-        &[-2.0, -1.0, 0.0, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.atan(x), &[-2.0, -1.0, 0.0, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_asinh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.asinh(x),
-        &[-2.0, -1.0, 0.0, 1.0, 2.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.asinh(x), &[-2.0, -1.0, 0.0, 1.0, 2.0]);
 }
 
 #[test]
 fn gpu_cpu_acosh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.acosh(x),
-        &[1.0, 1.5, 2.0, 3.0, 5.0],
-    );
+    compare_unary(&ctx, |ad, x| ad.acosh(x), &[1.0, 1.5, 2.0, 3.0, 5.0]);
 }
 
 #[test]
 fn gpu_cpu_atanh() {
     let Some(ctx) = gpu() else { return };
-    compare_unary(
-        &ctx,
-        |ad, x| ad.atanh(x),
-        &[-0.9, -0.5, 0.0, 0.5, 0.9],
-    );
+    compare_unary(&ctx, |ad, x| ad.atanh(x), &[-0.9, -0.5, 0.0, 0.5, 0.9]);
 }
 
 // =========================================================================

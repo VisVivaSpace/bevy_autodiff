@@ -56,7 +56,10 @@ fn get_dependencies(world: &World, entity: Entity) -> Vec<Entity> {
 /// # Errors
 ///
 /// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
-pub fn topological_order_multi(world: &World, outputs: &[Entity]) -> Result<Vec<Entity>, AutoDiffError> {
+pub fn topological_order_multi(
+    world: &World,
+    outputs: &[Entity],
+) -> Result<Vec<Entity>, AutoDiffError> {
     let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut temp_mark = HashSet::new();
@@ -120,10 +123,10 @@ pub fn resolve_handle(world: &World, handle: EntityHandle) -> Option<Entity> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{Value, Variable};
-    use crate::components::{BinaryOpMarker, UnaryOpMarker};
     use crate::BinaryOp;
     use crate::UnaryOp;
+    use crate::components::{BinaryOpMarker, UnaryOpMarker};
+    use crate::components::{Value, Variable};
 
     fn create_input(world: &mut World, value: f64) -> Entity {
         world.spawn((Variable, IsInput, Value::new(value))).id()

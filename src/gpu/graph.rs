@@ -67,18 +67,21 @@ impl GpuContext {
             output_indices.push(*node_idx as u32);
         }
 
-        let nodes_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("autodiff nodes"),
-            contents: bytemuck::cast_slice(&gpu_nodes),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-
-        let output_indices_buffer =
-            self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("autodiff output_indices"),
-                contents: bytemuck::cast_slice(&output_indices),
+        let nodes_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("autodiff nodes"),
+                contents: bytemuck::cast_slice(&gpu_nodes),
                 usage: wgpu::BufferUsages::STORAGE,
             });
+
+        let output_indices_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("autodiff output_indices"),
+                    contents: bytemuck::cast_slice(&output_indices),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
 
         Ok(GpuGraph {
             nodes_buffer,
@@ -480,12 +483,8 @@ mod tests {
 
         let gpu_graph = ctx.prepare(&graph).unwrap();
 
-        let r1 = gpu_graph
-            .eval_batch(&ctx, &[&[0.0, 1.0]])
-            .unwrap();
-        let r2 = gpu_graph
-            .eval_batch(&ctx, &[&[2.0, 3.0]])
-            .unwrap();
+        let r1 = gpu_graph.eval_batch(&ctx, &[&[0.0, 1.0]]).unwrap();
+        let r2 = gpu_graph.eval_batch(&ctx, &[&[2.0, 3.0]]).unwrap();
 
         assert!((r1.values()[0] - 0.0_f32.sin()).abs() < 1e-5);
         assert!((r1.values()[1] - 1.0_f32.sin()).abs() < 1e-5);

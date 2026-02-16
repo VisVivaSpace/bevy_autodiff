@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// Errors that can occur during autodiff operations.
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum AutoDiffError {
     /// Tried to create more than 64 input variables.
@@ -36,4 +36,8 @@ pub enum AutoDiffError {
     /// Non-finite value cannot be emitted as a WGSL literal.
     #[error("cannot emit WGSL literal for non-finite value: {value}")]
     NonFiniteWgsl { value: f64 },
+
+    /// Multi-index length does not match the number of inputs.
+    #[error("multi-index length {got} does not match input count {expected}")]
+    MultiIndexLengthMismatch { expected: usize, got: usize },
 }

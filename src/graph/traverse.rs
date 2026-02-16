@@ -68,7 +68,8 @@ pub fn visit_topological<F>(world: &World, output: Entity, mut visitor: F)
 where
     F: FnMut(Entity, usize),
 {
-    let order = crate::graph::topological_order(world, output).expect("cycle detected in computation graph");
+    let order = crate::graph::topological_order(world, output)
+        .expect("cycle detected in computation graph");
     let depth_map: std::collections::HashMap<Entity, usize> = compute_depths(world, output);
 
     for entity in order {

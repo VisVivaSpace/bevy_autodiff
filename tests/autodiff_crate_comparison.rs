@@ -4,8 +4,8 @@
 //! an independent forward-mode AD implementation.
 
 use approx::assert_relative_eq;
-use autodiff::Float;
 use autodiff::F1 as F;
+use autodiff::Float;
 use bevy_autodiff::AutoDiff;
 
 /// Helper: compare bevy_autodiff's derivative against autodiff crate's derivative

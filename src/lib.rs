@@ -72,26 +72,20 @@ pub mod error;
 pub mod graph;
 #[macro_use]
 pub mod macros;
-pub mod optimize;
-pub mod util;
-pub mod var;
-
-// Feature-gated operator overloading
 pub mod ops;
+pub mod var;
 
 #[cfg(test)]
 mod tests;
 
-// Re-exports for convenience
+// Re-exports: essential public API
 pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
 pub use error::AutoDiffError;
 pub use var::Var;
 
 // Re-export key component types
-pub use components::{
-    BinaryInputs, BinaryOp, Dependencies, IsConstant, IsInput, UnaryInput, UnaryOp, Value, Variable,
-};
+pub use components::{BinaryOp, Dependencies, IsConstant, IsInput, UnaryOp, Value, Variable};
 
 // Re-export debug utilities
 pub use debug::{count_operations, to_dot, validate_graph};
@@ -104,24 +98,6 @@ pub use bevy_autodiff_macros::autodiff;
 #[cfg(feature = "wgpu")]
 #[cfg_attr(docsrs, doc(cfg(feature = "wgpu")))]
 pub mod gpu;
-
-// Re-export graph traversal helpers
-pub use graph::{
-    collect_all_entities, find_all_inputs, get_binary_inputs, get_inputs, get_operation_name,
-    get_unary_input, get_value, is_leaf, max_depth, visit_topological,
-};
-
-// Re-export optimization utilities
-pub use optimize::{
-    build_cse_table, count_cse_opportunities, simplify_binary, simplify_unary, CseTable,
-    OpSignature, SimplifyResult,
-};
-
-// Re-export operator overloading context and free functions
-pub use ops::{
-    acos, acosh, asin, asinh, atan, atanh, cos, cosh, div_log, exp, ln, pow, pow_log, powf,
-    powf_log, powi, powi_log, sin, sinh, square, sqrt, tan, tanh, with_context,
-};
 
 // Compile-time assertions that all components are Send + Sync
 // This is required for Bevy's parallel system execution
@@ -153,10 +129,10 @@ fn _assert_send_sync() {
     assert_sync::<components::UnaryOpMarker>();
     assert_send::<components::BinaryOpMarker>();
     assert_sync::<components::BinaryOpMarker>();
-    assert_send::<UnaryInput>();
-    assert_sync::<UnaryInput>();
-    assert_send::<BinaryInputs>();
-    assert_sync::<BinaryInputs>();
+    assert_send::<components::UnaryInput>();
+    assert_sync::<components::UnaryInput>();
+    assert_send::<components::BinaryInputs>();
+    assert_sync::<components::BinaryInputs>();
 
     // Handle type
     assert_send::<Var>();

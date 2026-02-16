@@ -70,7 +70,11 @@ impl CompiledGraph {
         let params: Vec<String> = (0..self.num_inputs())
             .map(|i| format!("p{i}: f32"))
             .collect();
-        let _ = writeln!(out, "fn {func_name}({}) -> {struct_name} {{", params.join(", "));
+        let _ = writeln!(
+            out,
+            "fn {func_name}({}) -> {struct_name} {{",
+            params.join(", ")
+        );
 
         // --- Node statements ---
         for (i, node) in nodes.iter().enumerate() {
@@ -83,7 +87,11 @@ impl CompiledGraph {
         for (_, node_idx) in partial_outputs {
             return_fields.push(format!("v{node_idx}"));
         }
-        let _ = writeln!(out, "    return {struct_name}({});", return_fields.join(", "));
+        let _ = writeln!(
+            out,
+            "    return {struct_name}({});",
+            return_fields.join(", ")
+        );
         let _ = writeln!(out, "}}");
 
         Ok(out)
@@ -186,8 +194,8 @@ fn partial_field_name(multi_index: &[usize]) -> String {
 #[cfg(test)]
 mod tests {
     use crate::compiled::CompiledGraph;
-    use crate::components::{BinaryOp, UnaryOp};
     use crate::compiled::NodeOp;
+    use crate::components::{BinaryOp, UnaryOp};
 
     use super::*;
 
@@ -219,9 +227,17 @@ mod tests {
         let nodes = vec![
             NodeOp::Input(0),
             NodeOp::Constant(2.0),
-            NodeOp::Binary { op: BinaryOp::Mul, lhs: 1, rhs: 0 },
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 1,
+                rhs: 0,
+            },
             NodeOp::Constant(1.0),
-            NodeOp::Binary { op: BinaryOp::Add, lhs: 2, rhs: 3 },
+            NodeOp::Binary {
+                op: BinaryOp::Add,
+                lhs: 2,
+                rhs: 3,
+            },
         ];
         let cg = CompiledGraph::new(nodes, 1, 4, vec![]);
         let wgsl = cg.to_wgsl("linear").unwrap();
@@ -252,16 +268,15 @@ mod tests {
         ];
 
         for (op, expected_expr) in ops_and_wgsl {
-            let nodes = vec![
-                NodeOp::Input(0),
-                NodeOp::Unary { op, src: 0 },
-            ];
+            let nodes = vec![NodeOp::Input(0), NodeOp::Unary { op, src: 0 }];
             let cg = CompiledGraph::new(nodes, 1, 1, vec![]);
             let wgsl = cg.to_wgsl("f").unwrap();
             assert!(
                 wgsl.contains(&format!("let v1 = {expected_expr};")),
                 "op {:?}: expected '{}' in:\n{}",
-                op, expected_expr, wgsl
+                op,
+                expected_expr,
+                wgsl
             );
         }
     }
@@ -287,7 +302,9 @@ mod tests {
             assert!(
                 wgsl.contains(&format!("let v2 = {expected_expr};")),
                 "op {:?}: expected '{}' in:\n{}",
-                op, expected_expr, wgsl
+                op,
+                expected_expr,
+                wgsl
             );
         }
     }
@@ -296,14 +313,16 @@ mod tests {
     fn with_partials() {
         // f(x) = x^2, df/dx = 2x (manually constructed)
         let nodes = vec![
-            NodeOp::Input(0),       // v0: x
-            NodeOp::Binary {        // v1: x * x
+            NodeOp::Input(0), // v0: x
+            NodeOp::Binary {
+                // v1: x * x
                 op: BinaryOp::Mul,
                 lhs: 0,
                 rhs: 0,
             },
-            NodeOp::Constant(2.0),  // v2: 2
-            NodeOp::Binary {        // v3: 2 * x
+            NodeOp::Constant(2.0), // v2: 2
+            NodeOp::Binary {
+                // v3: 2 * x
                 op: BinaryOp::Mul,
                 lhs: 2,
                 rhs: 0,
@@ -325,7 +344,11 @@ mod tests {
         let nodes = vec![
             NodeOp::Input(0),
             NodeOp::Input(1),
-            NodeOp::Binary { op: BinaryOp::Mul, lhs: 0, rhs: 1 },
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            },
         ];
         let cg = CompiledGraph::new(nodes, 2, 2, vec![]);
         let wgsl = cg.to_wgsl("mul_xy").unwrap();
@@ -340,7 +363,10 @@ mod tests {
         // Verify the generated WGSL has the expected structure tokens
         let nodes = vec![
             NodeOp::Input(0),
-            NodeOp::Unary { op: UnaryOp::Sin, src: 0 },
+            NodeOp::Unary {
+                op: UnaryOp::Sin,
+                src: 0,
+            },
         ];
         let cg = CompiledGraph::new(nodes, 1, 1, vec![]);
         let wgsl = cg.to_wgsl("my_func").unwrap();
@@ -361,16 +387,15 @@ mod tests {
         let nodes = vec![
             NodeOp::Input(0),
             NodeOp::Input(1),
-            NodeOp::Binary { op: BinaryOp::Mul, lhs: 0, rhs: 1 },
+            NodeOp::Binary {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 1,
+            },
             NodeOp::Input(1), // stand-in for df/dx node
             NodeOp::Input(0), // stand-in for df/dy node
         ];
-        let cg = CompiledGraph::new(
-            nodes,
-            2,
-            2,
-            vec![(vec![1, 0], 3), (vec![0, 1], 4)],
-        );
+        let cg = CompiledGraph::new(nodes, 2, 2, vec![(vec![1, 0], 3), (vec![0, 1], 4)]);
         let wgsl = cg.to_wgsl("f").unwrap();
         assert!(wgsl.contains("d1_0: f32,"));
         assert!(wgsl.contains("d0_1: f32,"));
@@ -507,8 +532,14 @@ mod tests {
         let d2_f32 = vals_f32[d2_idx];
 
         assert!((val_f32 - 8.0).abs() < 1e-4, "f32: f(2) = 8, got {val_f32}");
-        assert!((d1_f32 - 12.0).abs() < 1e-4, "f32: f'(2) = 12, got {d1_f32}");
-        assert!((d2_f32 - 12.0).abs() < 1e-4, "f32: f''(2) = 12, got {d2_f32}");
+        assert!(
+            (d1_f32 - 12.0).abs() < 1e-4,
+            "f32: f'(2) = 12, got {d1_f32}"
+        );
+        assert!(
+            (d2_f32 - 12.0).abs() < 1e-4,
+            "f32: f''(2) = 12, got {d2_f32}"
+        );
     }
 
     /// Two-body gravitational Hessian diagnostic.
@@ -582,7 +613,11 @@ mod tests {
         let h22_analytical = analytical_hessian(2, 2);
 
         let rel_err = |a: f64, b: f64| -> f64 {
-            if b.abs() < 1e-30 { a.abs() } else { (a - b).abs() / b.abs() }
+            if b.abs() < 1e-30 {
+                a.abs()
+            } else {
+                (a - b).abs() / b.abs()
+            }
         };
 
         eprintln!("\n=== Two-body Hessian diagnostic ===");
@@ -592,12 +627,30 @@ mod tests {
 
         // f64 vs analytical
         eprintln!("--- f64 eval vs analytical ---");
-        eprintln!("d2_0_0: f64={d2_0_0_f64:>15.6e}  analytical={h00_analytical:>15.6e}  rel_err={:.2e}", rel_err(d2_0_0_f64, h00_analytical));
-        eprintln!("d1_1_0: f64={d1_1_0_f64:>15.6e}  analytical={h01_analytical:>15.6e}  rel_err={:.2e}", rel_err(d1_1_0_f64, h01_analytical));
-        eprintln!("d1_0_1: f64={d1_0_1_f64:>15.6e}  analytical={h02_analytical:>15.6e}  rel_err={:.2e}", rel_err(d1_0_1_f64, h02_analytical));
-        eprintln!("d0_2_0: f64={d0_2_0_f64:>15.6e}  analytical={h11_analytical:>15.6e}  rel_err={:.2e}", rel_err(d0_2_0_f64, h11_analytical));
-        eprintln!("d0_1_1: f64={d0_1_1_f64:>15.6e}  analytical={h12_analytical:>15.6e}  rel_err={:.2e}", rel_err(d0_1_1_f64, h12_analytical));
-        eprintln!("d0_0_2: f64={d0_0_2_f64:>15.6e}  analytical={h22_analytical:>15.6e}  rel_err={:.2e}", rel_err(d0_0_2_f64, h22_analytical));
+        eprintln!(
+            "d2_0_0: f64={d2_0_0_f64:>15.6e}  analytical={h00_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d2_0_0_f64, h00_analytical)
+        );
+        eprintln!(
+            "d1_1_0: f64={d1_1_0_f64:>15.6e}  analytical={h01_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d1_1_0_f64, h01_analytical)
+        );
+        eprintln!(
+            "d1_0_1: f64={d1_0_1_f64:>15.6e}  analytical={h02_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d1_0_1_f64, h02_analytical)
+        );
+        eprintln!(
+            "d0_2_0: f64={d0_2_0_f64:>15.6e}  analytical={h11_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d0_2_0_f64, h11_analytical)
+        );
+        eprintln!(
+            "d0_1_1: f64={d0_1_1_f64:>15.6e}  analytical={h12_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d0_1_1_f64, h12_analytical)
+        );
+        eprintln!(
+            "d0_0_2: f64={d0_0_2_f64:>15.6e}  analytical={h22_analytical:>15.6e}  rel_err={:.2e}",
+            rel_err(d0_0_2_f64, h22_analytical)
+        );
         eprintln!();
 
         // --- f32 simulation ---
@@ -628,22 +681,48 @@ mod tests {
         eprintln!("value:  f64={val_f64:>15.6e}  f32={val_f32:>15.6e}");
         eprintln!();
         eprintln!("First derivatives:");
-        eprintln!("d1_0_0: f64={d1_0_0_f64:>15.6e}  f32={d1_0_0_f32:>15.6e}  f32_rel_err={:.2e}", rel_err(d1_0_0_f32 as f64, d1_0_0_f64));
-        eprintln!("d0_1_0: f64={d0_1_0_f64:>15.6e}  f32={d0_1_0_f32:>15.6e}  f32_rel_err={:.2e}", rel_err(d0_1_0_f32 as f64, d0_1_0_f64));
-        eprintln!("d0_0_1: f64={d0_0_1_f64:>15.6e}  f32={d0_0_1_f32:>15.6e}  f32_rel_err={:.2e}", rel_err(d0_0_1_f32 as f64, d0_0_1_f64));
+        eprintln!(
+            "d1_0_0: f64={d1_0_0_f64:>15.6e}  f32={d1_0_0_f32:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d1_0_0_f32 as f64, d1_0_0_f64)
+        );
+        eprintln!(
+            "d0_1_0: f64={d0_1_0_f64:>15.6e}  f32={d0_1_0_f32:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d0_1_0_f32 as f64, d0_1_0_f64)
+        );
+        eprintln!(
+            "d0_0_1: f64={d0_0_1_f64:>15.6e}  f32={d0_0_1_f32:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d0_0_1_f32 as f64, d0_0_1_f64)
+        );
         eprintln!();
         eprintln!("Second derivatives (THE KEY COMPARISON):");
-        eprintln!("d2_0_0: f64={d2_0_0_f64:>15.6e}  f32={d2_0_0_f32:>15.6e}  analytical={h00_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d2_0_0_f32 as f64, h00_analytical));
-        eprintln!("d1_1_0: f64={d1_1_0_f64:>15.6e}  f32={d1_1_0_f32:>15.6e}  analytical={h01_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d1_1_0_f32 as f64, h01_analytical));
-        eprintln!("d1_0_1: f64={d1_0_1_f64:>15.6e}  f32={d1_0_1_f32:>15.6e}  analytical={h02_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d1_0_1_f32 as f64, h02_analytical));
-        eprintln!("d0_2_0: f64={d0_2_0_f64:>15.6e}  f32={d0_2_0_f32:>15.6e}  analytical={h11_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d0_2_0_f32 as f64, h11_analytical));
-        eprintln!("d0_1_1: f64={d0_1_1_f64:>15.6e}  f32={d0_1_1_f32:>15.6e}  analytical={h12_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d0_1_1_f32 as f64, h12_analytical));
-        eprintln!("d0_0_2: f64={d0_0_2_f64:>15.6e}  f32={d0_0_2_f32:>15.6e}  analytical={h22_analytical:>15.6e}  f32_rel_err={:.2e}", rel_err(d0_0_2_f32 as f64, h22_analytical));
+        eprintln!(
+            "d2_0_0: f64={d2_0_0_f64:>15.6e}  f32={d2_0_0_f32:>15.6e}  analytical={h00_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d2_0_0_f32 as f64, h00_analytical)
+        );
+        eprintln!(
+            "d1_1_0: f64={d1_1_0_f64:>15.6e}  f32={d1_1_0_f32:>15.6e}  analytical={h01_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d1_1_0_f32 as f64, h01_analytical)
+        );
+        eprintln!(
+            "d1_0_1: f64={d1_0_1_f64:>15.6e}  f32={d1_0_1_f32:>15.6e}  analytical={h02_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d1_0_1_f32 as f64, h02_analytical)
+        );
+        eprintln!(
+            "d0_2_0: f64={d0_2_0_f64:>15.6e}  f32={d0_2_0_f32:>15.6e}  analytical={h11_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d0_2_0_f32 as f64, h11_analytical)
+        );
+        eprintln!(
+            "d0_1_1: f64={d0_1_1_f64:>15.6e}  f32={d0_1_1_f32:>15.6e}  analytical={h12_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d0_1_1_f32 as f64, h12_analytical)
+        );
+        eprintln!(
+            "d0_0_2: f64={d0_0_2_f64:>15.6e}  f32={d0_0_2_f32:>15.6e}  analytical={h22_analytical:>15.6e}  f32_rel_err={:.2e}",
+            rel_err(d0_0_2_f32 as f64, h22_analytical)
+        );
         eprintln!();
 
         // Check if f32 simulation matches the bug report pattern
-        let f32_matches_bug_report =
-            rel_err(d2_0_0_f32 as f64, h00_analytical) > 0.5
+        let f32_matches_bug_report = rel_err(d2_0_0_f32 as f64, h00_analytical) > 0.5
             || rel_err(d0_2_0_f32 as f64, h11_analytical) > 0.5
             || rel_err(d0_0_2_f32 as f64, h22_analytical) > 0.5;
 
@@ -844,14 +923,22 @@ mod tests {
         };
 
         let rel_err = |a: f64, b: f64| -> f64 {
-            if b.abs() < 1e-30 { a.abs() } else { (a - b).abs() / b.abs() }
+            if b.abs() < 1e-30 {
+                a.abs()
+            } else {
+                (a - b).abs() / b.abs()
+            }
         };
 
         // Verify f64 eval matches analytical (sanity check)
-        assert!(rel_err(d2_0_0_f64, analytical_hessian(0, 0)) < 1e-10,
-            "f64 d2_0_0 doesn't match analytical");
-        assert!(rel_err(d1_1_0_f64, analytical_hessian(0, 1)) < 1e-10,
-            "f64 d1_1_0 doesn't match analytical");
+        assert!(
+            rel_err(d2_0_0_f64, analytical_hessian(0, 0)) < 1e-10,
+            "f64 d2_0_0 doesn't match analytical"
+        );
+        assert!(
+            rel_err(d1_1_0_f64, analytical_hessian(0, 1)) < 1e-10,
+            "f64 d1_1_0 doesn't match analytical"
+        );
 
         // --- f32 simulation: the actual test ---
         let nodes = graph.nodes();
@@ -865,18 +952,44 @@ mod tests {
         };
 
         let hessian_f32 = [
-            (find_partial(&[2, 0, 0]), analytical_hessian(0, 0), "d2a/dx²"),
-            (find_partial(&[1, 1, 0]), analytical_hessian(0, 1), "d2a/dxdy"),
-            (find_partial(&[1, 0, 1]), analytical_hessian(0, 2), "d2a/dxdz"),
-            (find_partial(&[0, 2, 0]), analytical_hessian(1, 1), "d2a/dy²"),
-            (find_partial(&[0, 1, 1]), analytical_hessian(1, 2), "d2a/dydz"),
-            (find_partial(&[0, 0, 2]), analytical_hessian(2, 2), "d2a/dz²"),
+            (
+                find_partial(&[2, 0, 0]),
+                analytical_hessian(0, 0),
+                "d2a/dx²",
+            ),
+            (
+                find_partial(&[1, 1, 0]),
+                analytical_hessian(0, 1),
+                "d2a/dxdy",
+            ),
+            (
+                find_partial(&[1, 0, 1]),
+                analytical_hessian(0, 2),
+                "d2a/dxdz",
+            ),
+            (
+                find_partial(&[0, 2, 0]),
+                analytical_hessian(1, 1),
+                "d2a/dy²",
+            ),
+            (
+                find_partial(&[0, 1, 1]),
+                analytical_hessian(1, 2),
+                "d2a/dydz",
+            ),
+            (
+                find_partial(&[0, 0, 2]),
+                analytical_hessian(2, 2),
+                "d2a/dz²",
+            ),
         ];
 
         eprintln!("\n=== pow_log two-body Hessian f32 stability ===");
         for &(f32_val, analytical, name) in &hessian_f32 {
             let err = rel_err(f32_val as f64, analytical);
-            eprintln!("{name}: f32={f32_val:>15.6e}  analytical={analytical:>15.6e}  rel_err={err:.2e}");
+            eprintln!(
+                "{name}: f32={f32_val:>15.6e}  analytical={analytical:>15.6e}  rel_err={err:.2e}"
+            );
             // f32 error budget: ~20 ops × f32 ε ≈ 2.4e-6 expected; 1e-4 gives ~40× headroom
             assert!(
                 err < 1e-4,

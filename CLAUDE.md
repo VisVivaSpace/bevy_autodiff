@@ -157,8 +157,9 @@ src/
 [dependencies]
 bevy_ecs = "0.18"
 bevy_entity_ptr = "0.5"
-bevy_autodiff-macros = { version = "0.1.0", path = "./bevy_autodiff-macros", optional = true }
-wgpu = { version = "27", optional = true }
+thiserror = "2"
+bevy_autodiff-macros = { version = "0.2.0", path = "./bevy_autodiff-macros", optional = true }
+wgpu = { version = "28", optional = true }
 bytemuck = { version = "1.25", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }
 
@@ -166,6 +167,7 @@ pollster = { version = "0.4", optional = true }
 approx = "0.5"    # Floating point comparisons
 autodiff = "0.7"  # Oracle validation for derivatives
 criterion = "0.5" # Benchmarks
+rkf78 = "0.1"     # ODE solver for stm_propagation example
 
 [features]
 proc-macros = ["bevy_autodiff-macros"]   # Enable #[autodiff] and expr! macros

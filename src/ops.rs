@@ -85,8 +85,8 @@ pub fn with_context<F, R>(ad: &mut AutoDiff, f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let ptr = NonNull::new(ad as *mut AutoDiff)
-        .expect("internal: mutable reference cannot be null");
+    let ptr =
+        NonNull::new(ad as *mut AutoDiff).expect("internal: mutable reference cannot be null");
     CONTEXT.with(|ctx| {
         let old = ctx.borrow_mut().replace(ptr);
         // RAII guard restores the previous context even if f() panics,
@@ -119,13 +119,16 @@ where
     F: FnOnce(&mut AutoDiff) -> R,
 {
     CONTEXT.with(|ctx| {
-        let ptr = ctx
-            .borrow()
-            .expect("Operator overloading requires an active AutoDiff context. Use with_context().");
-        // SAFETY: The pointer is valid for the duration of the with_context() call.
+        let ptr = ctx.borrow().expect(
+            "Operator overloading requires an active AutoDiff context. Use with_context().",
+        );
+        // SAFETY: The NonNull<AutoDiff> pointer is valid for the duration of
+        // the enclosing `with_context()` call, which holds a live &mut AutoDiff.
         // We create a short-lived &mut that does not escape this closure.
-        // Only one with_current_context call executes at a time because operator
-        // trait methods run sequentially within a single expression.
+        // Operator trait methods (Add, Mul, etc.) run sequentially within a
+        // single expression, so there is no concurrent access. Re-entrancy
+        // cannot occur because `f` receives &mut AutoDiff (not a closure that
+        // could call with_current_context again).
         f(unsafe { &mut *ptr.as_ptr() })
     })
 }
@@ -283,77 +286,123 @@ impl Neg for Var {
 // ============================================================================
 
 /// Computes sin(x) within the current AutoDiff context.
-pub fn sin(x: Var) -> Var { with_current_context(|ctx| ctx.sin(x)) }
+pub fn sin(x: Var) -> Var {
+    with_current_context(|ctx| ctx.sin(x))
+}
 
 /// Computes cos(x) within the current AutoDiff context.
-pub fn cos(x: Var) -> Var { with_current_context(|ctx| ctx.cos(x)) }
+pub fn cos(x: Var) -> Var {
+    with_current_context(|ctx| ctx.cos(x))
+}
 
 /// Computes tan(x) within the current AutoDiff context.
-pub fn tan(x: Var) -> Var { with_current_context(|ctx| ctx.tan(x)) }
+pub fn tan(x: Var) -> Var {
+    with_current_context(|ctx| ctx.tan(x))
+}
 
 /// Computes exp(x) within the current AutoDiff context.
-pub fn exp(x: Var) -> Var { with_current_context(|ctx| ctx.exp(x)) }
+pub fn exp(x: Var) -> Var {
+    with_current_context(|ctx| ctx.exp(x))
+}
 
 /// Computes ln(x) within the current AutoDiff context.
-pub fn ln(x: Var) -> Var { with_current_context(|ctx| ctx.ln(x)) }
+pub fn ln(x: Var) -> Var {
+    with_current_context(|ctx| ctx.ln(x))
+}
 
 /// Computes sqrt(x) within the current AutoDiff context.
-pub fn sqrt(x: Var) -> Var { with_current_context(|ctx| ctx.sqrt(x)) }
+pub fn sqrt(x: Var) -> Var {
+    with_current_context(|ctx| ctx.sqrt(x))
+}
 
 /// Computes sinh(x) within the current AutoDiff context.
-pub fn sinh(x: Var) -> Var { with_current_context(|ctx| ctx.sinh(x)) }
+pub fn sinh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.sinh(x))
+}
 
 /// Computes cosh(x) within the current AutoDiff context.
-pub fn cosh(x: Var) -> Var { with_current_context(|ctx| ctx.cosh(x)) }
+pub fn cosh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.cosh(x))
+}
 
 /// Computes tanh(x) within the current AutoDiff context.
-pub fn tanh(x: Var) -> Var { with_current_context(|ctx| ctx.tanh(x)) }
+pub fn tanh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.tanh(x))
+}
 
 /// Computes asin(x) within the current AutoDiff context.
-pub fn asin(x: Var) -> Var { with_current_context(|ctx| ctx.asin(x)) }
+pub fn asin(x: Var) -> Var {
+    with_current_context(|ctx| ctx.asin(x))
+}
 
 /// Computes acos(x) within the current AutoDiff context.
-pub fn acos(x: Var) -> Var { with_current_context(|ctx| ctx.acos(x)) }
+pub fn acos(x: Var) -> Var {
+    with_current_context(|ctx| ctx.acos(x))
+}
 
 /// Computes atan(x) within the current AutoDiff context.
-pub fn atan(x: Var) -> Var { with_current_context(|ctx| ctx.atan(x)) }
+pub fn atan(x: Var) -> Var {
+    with_current_context(|ctx| ctx.atan(x))
+}
 
 /// Computes asinh(x) within the current AutoDiff context.
-pub fn asinh(x: Var) -> Var { with_current_context(|ctx| ctx.asinh(x)) }
+pub fn asinh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.asinh(x))
+}
 
 /// Computes acosh(x) within the current AutoDiff context.
-pub fn acosh(x: Var) -> Var { with_current_context(|ctx| ctx.acosh(x)) }
+pub fn acosh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.acosh(x))
+}
 
 /// Computes atanh(x) within the current AutoDiff context.
-pub fn atanh(x: Var) -> Var { with_current_context(|ctx| ctx.atanh(x)) }
+pub fn atanh(x: Var) -> Var {
+    with_current_context(|ctx| ctx.atanh(x))
+}
 
 /// Computes x^2 within the current AutoDiff context.
-pub fn square(x: Var) -> Var { with_current_context(|ctx| ctx.square(x)) }
+pub fn square(x: Var) -> Var {
+    with_current_context(|ctx| ctx.square(x))
+}
 
 /// Computes base^exp within the current AutoDiff context (both Var).
-pub fn pow(base: Var, exp: Var) -> Var { with_current_context(|ctx| ctx.pow(base, exp)) }
+pub fn pow(base: Var, exp: Var) -> Var {
+    with_current_context(|ctx| ctx.pow(base, exp))
+}
 
 /// Computes x^n within the current AutoDiff context (integer exponent).
-pub fn powi(x: Var, n: i32) -> Var { with_current_context(|ctx| ctx.powi(x, n)) }
+pub fn powi(x: Var, n: i32) -> Var {
+    with_current_context(|ctx| ctx.powi(x, n))
+}
 
 /// Computes x^p within the current AutoDiff context (float exponent).
-pub fn powf(x: Var, p: f64) -> Var { with_current_context(|ctx| ctx.powf(x, p)) }
+pub fn powf(x: Var, p: f64) -> Var {
+    with_current_context(|ctx| ctx.powf(x, p))
+}
 
 /// Computes base^exp using logarithmic differentiation (both Var).
 /// See [`AutoDiff::pow_log`](crate::AutoDiff::pow_log) for details.
-pub fn pow_log(base: Var, exp: Var) -> Var { with_current_context(|ctx| ctx.pow_log(base, exp)) }
+pub fn pow_log(base: Var, exp: Var) -> Var {
+    with_current_context(|ctx| ctx.pow_log(base, exp))
+}
 
 /// Computes x^n using logarithmic differentiation (integer exponent).
 /// See [`AutoDiff::powi_log`](crate::AutoDiff::powi_log) for details.
-pub fn powi_log(x: Var, n: i32) -> Var { with_current_context(|ctx| ctx.powi_log(x, n)) }
+pub fn powi_log(x: Var, n: i32) -> Var {
+    with_current_context(|ctx| ctx.powi_log(x, n))
+}
 
 /// Computes x^p using logarithmic differentiation (float exponent).
 /// See [`AutoDiff::powf_log`](crate::AutoDiff::powf_log) for details.
-pub fn powf_log(x: Var, p: f64) -> Var { with_current_context(|ctx| ctx.powf_log(x, p)) }
+pub fn powf_log(x: Var, p: f64) -> Var {
+    with_current_context(|ctx| ctx.powf_log(x, p))
+}
 
 /// Computes a/b using logarithmic differentiation.
 /// See [`AutoDiff::div_log`](crate::AutoDiff::div_log) for details.
-pub fn div_log(a: Var, b: Var) -> Var { with_current_context(|ctx| ctx.div_log(a, b)) }
+pub fn div_log(a: Var, b: Var) -> Var {
+    with_current_context(|ctx| ctx.div_log(a, b))
+}
 
 #[cfg(test)]
 mod tests {

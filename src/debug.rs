@@ -114,7 +114,7 @@ fn get_node_label(world: &World, entity: Entity) -> String {
 /// Returns Ok(()) if valid, or Err with a description of the issue.
 pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
     let entities = topological_order(world, output.entity())
-        .expect("debug: cycle detected in computation graph");
+        .map_err(|_| "cycle detected in computation graph".to_string())?;
 
     for &entity in &entities {
         let entity_ref = world.entity(entity);
