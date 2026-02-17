@@ -8,7 +8,7 @@ use bevy_autodiff::{AutoDiff, Var};
 
 /// Build Rosenbrock function: (1-x)² + 100*(y-x²)²
 fn build_rosenbrock(
-    ad: &mut AutoDiff,
+    ad: &mut AutoDiff<f64>,
 ) -> (bevy_autodiff::Var, bevy_autodiff::Var, bevy_autodiff::Var) {
     let x = ad.var(0.0).unwrap();
     let y = ad.var(0.0).unwrap();
@@ -140,7 +140,7 @@ fn bench_reverse_gradient(c: &mut Criterion) {
 /// Build two-body gravitational acceleration: a = -mu/r³ * [x, y, z]
 /// This is a deeper graph with sqrt, pow, div — representative of real
 /// scientific computing workloads. 6 inputs (x,y,z,vx,vy,vz), 3 outputs.
-fn build_two_body(ad: &mut AutoDiff) -> ([Var; 6], [Var; 3]) {
+fn build_two_body(ad: &mut AutoDiff<f64>) -> ([Var; 6], [Var; 3]) {
     let x = ad.var(6578.0).unwrap(); // km (LEO radius)
     let y = ad.var(0.0).unwrap();
     let z = ad.var(0.0).unwrap();

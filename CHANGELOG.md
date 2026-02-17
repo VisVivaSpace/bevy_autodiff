@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-02-17
+
+### Added
+
+- Generic float types: `AutoDiff<F>`, `CompiledGraph<F>`, `Value<F>`, `NodeOp<F>` are now generic over `F: Float` — supports f32, f64, and user-defined numeric types
+- `DiffNum` trait for dual-use functions: write `fn f<T: DiffNum>(x: T) -> T` and call with plain floats (direct evaluation) or `Var` (graph construction)
+- `Float` trait for graph-storable types: extends `DiffNum` with `to_f64()` and `is_finite()`. User-extensible — implement for custom numeric types (interval arithmetic, extended precision, etc.)
+- `DiffNum` implementations for `f32`, `f64`, and `Var`
+- `Float` implementations for `f32` and `f64`
+- `AutoDiff::<f32>::new()` for single-precision computation graphs
+- New f32 test suite: 20 tests covering arithmetic, derivatives, CompiledGraph, gradient
+- New DiffNum test suite: 21 tests covering generic function evaluation and differentiation
+- Proc-macro tests for direct f64/f32 evaluation of `#[autodiff]` functions
+- Proc-macro edge case tests: `i32` parameters, f64/f32 consistency, stable_derivatives div_log
+
+### Changed
+
+- **BREAKING:** `#[autodiff]` now generates `fn f<T: DiffNum>(x: T) -> T` instead of injecting `ad: &mut AutoDiff`. Call via `with_context(&mut ad, || f(x))` for graph construction, or `f(2.0_f64)` for direct evaluation.
+- **BREAKING:** `AutoDiff`, `CompiledGraph`, `Value`, `NodeOp` are now generic over float type (existing code using `AutoDiff::new()` with f64 literals continues to work via type inference)
+- docs.rs: added `#![cfg_attr(docsrs, feature(doc_cfg))]` for proper feature-gated documentation
+
+### Removed
+
+- Removed `num-complex` and `num-traits` dependencies — replaced with custom `Float` trait (user-extensible, no sealed trait limitation)
+
 ## [0.7.0] - 2026-02-16
 
 ### Added
@@ -152,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Oracle validation against the `autodiff` crate
 - Operator overloading via `with_context`
 
+[0.8.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/VisVivaSpace/bevy_autodiff/compare/v0.4.0...v0.5.0

@@ -9,7 +9,7 @@
 //! ```
 //! use bevy_autodiff::AutoDiff;
 //!
-//! let mut ad = AutoDiff::new();
+//! let mut ad = AutoDiff::<f64>::new();
 //! let x = ad.var(0.0).unwrap();
 //! let y = ad.var(0.0).unwrap();
 //! let f = ad.mul(x, y);
@@ -24,8 +24,9 @@ use std::fmt::Write;
 
 use crate::compiled::{CompiledGraph, NodeOp};
 use crate::components::{BinaryOp, UnaryOp};
+use crate::diff_num::Float;
 
-impl CompiledGraph {
+impl<F: Float> CompiledGraph<F> {
     /// Generates a standalone WGSL function from this compiled graph.
     ///
     /// Returns a string containing:
@@ -99,10 +100,16 @@ impl CompiledGraph {
 }
 
 /// Convert a single `NodeOp` to a WGSL `let` statement.
-fn node_to_wgsl(index: usize, node: &NodeOp) -> Result<String, crate::error::AutoDiffError> {
+fn node_to_wgsl<F: Float>(
+    index: usize,
+    node: &NodeOp<F>,
+) -> Result<String, crate::error::AutoDiffError> {
     match *node {
         NodeOp::Input(pos) => Ok(format!("let v{index} = p{pos};")),
-        NodeOp::Constant(val) => Ok(format!("let v{index} = {};", format_f32(val)?)),
+        NodeOp::Constant(val) => {
+            let val_f64 = val.to_f64();
+            Ok(format!("let v{index} = {};", format_f32(val_f64)?))
+        }
         NodeOp::Unary { op, src } => {
             let expr = unary_to_wgsl(op, &format!("v{src}"));
             Ok(format!("let v{index} = {expr};"))
@@ -201,7 +208,7 @@ mod tests {
 
     #[test]
     fn constant_only() {
-        let nodes = vec![NodeOp::Constant(3.14)];
+        let nodes = vec![NodeOp::Constant(3.14_f64)];
         let cg = CompiledGraph::new(nodes, 0, 0, vec![]);
         let wgsl = cg.to_wgsl("pi").unwrap();
         assert!(wgsl.contains("struct PiOutput"));
@@ -213,7 +220,7 @@ mod tests {
     #[test]
     fn identity() {
         // f(x) = x
-        let nodes = vec![NodeOp::Input(0)];
+        let nodes: Vec<NodeOp<f64>> = vec![NodeOp::Input(0)];
         let cg = CompiledGraph::new(nodes, 1, 0, vec![]);
         let wgsl = cg.to_wgsl("identity").unwrap();
         assert!(wgsl.contains("fn identity(p0: f32) -> IdentityOutput"));
@@ -268,7 +275,7 @@ mod tests {
         ];
 
         for (op, expected_expr) in ops_and_wgsl {
-            let nodes = vec![NodeOp::Input(0), NodeOp::Unary { op, src: 0 }];
+            let nodes: Vec<NodeOp<f64>> = vec![NodeOp::Input(0), NodeOp::Unary { op, src: 0 }];
             let cg = CompiledGraph::new(nodes, 1, 1, vec![]);
             let wgsl = cg.to_wgsl("f").unwrap();
             assert!(
@@ -292,7 +299,7 @@ mod tests {
         ];
 
         for (op, expected_expr) in ops_and_wgsl {
-            let nodes = vec![
+            let nodes: Vec<NodeOp<f64>> = vec![
                 NodeOp::Input(0),
                 NodeOp::Input(1),
                 NodeOp::Binary { op, lhs: 0, rhs: 1 },
@@ -341,7 +348,7 @@ mod tests {
     #[test]
     fn two_inputs() {
         // f(x, y) = x * y
-        let nodes = vec![
+        let nodes: Vec<NodeOp<f64>> = vec![
             NodeOp::Input(0),
             NodeOp::Input(1),
             NodeOp::Binary {
@@ -361,7 +368,7 @@ mod tests {
     #[test]
     fn validate_output_parseable() {
         // Verify the generated WGSL has the expected structure tokens
-        let nodes = vec![
+        let nodes: Vec<NodeOp<f64>> = vec![
             NodeOp::Input(0),
             NodeOp::Unary {
                 op: UnaryOp::Sin,
@@ -384,7 +391,7 @@ mod tests {
     #[test]
     fn multi_index_field_names() {
         // f(x, y) with partials [1,0] and [0,1]
-        let nodes = vec![
+        let nodes: Vec<NodeOp<f64>> = vec![
             NodeOp::Input(0),
             NodeOp::Input(1),
             NodeOp::Binary {
@@ -406,7 +413,7 @@ mod tests {
         // Test using the actual AutoDiff API
         use crate::AutoDiff;
 
-        let mut ad = AutoDiff::new();
+        let mut ad = AutoDiff::<f64>::new();
         let x = ad.var(0.0).unwrap();
         let f = ad.sin(x);
         let graph = ad.compile_order(f, &[x], 1).unwrap();
@@ -453,7 +460,7 @@ mod tests {
     // =========================================================================
 
     /// Evaluate a NodeOp array using f32 arithmetic (simulating WGSL precision).
-    fn eval_f32(nodes: &[NodeOp], inputs: &[f32]) -> Vec<f32> {
+    fn eval_f32(nodes: &[NodeOp<f64>], inputs: &[f32]) -> Vec<f32> {
         let mut values = vec![0.0f32; nodes.len()];
         for (i, node) in nodes.iter().enumerate() {
             values[i] = match *node {
@@ -502,7 +509,7 @@ mod tests {
     fn second_order_simple_cubic() {
         use crate::AutoDiff;
 
-        let mut ad = AutoDiff::new();
+        let mut ad = AutoDiff::<f64>::new();
         let x = ad.var(2.0).unwrap();
         let x2 = ad.mul(x, x);
         let f = ad.mul(x2, x); // x³
@@ -554,7 +561,7 @@ mod tests {
     fn second_order_two_body_f32_diagnostic() {
         use crate::AutoDiff;
 
-        let mut ad = AutoDiff::new();
+        let mut ad = AutoDiff::<f64>::new();
         let rx = ad.var(0.0).unwrap();
         let ry = ad.var(0.0).unwrap();
         let rz = ad.var(0.0).unwrap();
@@ -747,13 +754,13 @@ mod tests {
 
         for &x_val in &[0.5, 1.0, 2.0, 4.0] {
             for &p in &[-3.0, -1.5, 0.5, 2.0, 2.5] {
-                let mut ad_pow = AutoDiff::new();
+                let mut ad_pow = AutoDiff::<f64>::new();
                 let x1 = ad_pow.var(x_val).unwrap();
                 let f1 = ad_pow.powf(x1, p);
                 let df1 = ad_pow.differentiate(f1, x1).unwrap();
                 let deriv_pow = ad_pow.eval(df1).unwrap();
 
-                let mut ad_log = AutoDiff::new();
+                let mut ad_log = AutoDiff::<f64>::new();
                 let x2 = ad_log.var(x_val).unwrap();
                 let f2 = ad_log.powf_log(x2, p);
                 let df2 = ad_log.differentiate(f2, x2).unwrap();
@@ -778,7 +785,7 @@ mod tests {
         for &x_val in &[1.0, 2.0, 3.0] {
             for &y_val in &[0.5, 1.0, 2.0] {
                 // d(x/y)/dx = 1/y
-                let mut ad_div = AutoDiff::new();
+                let mut ad_div = AutoDiff::<f64>::new();
                 let x1 = ad_div.var(x_val).unwrap();
                 let y1 = ad_div.var(y_val).unwrap();
                 let f1 = ad_div.div(x1, y1);
@@ -787,7 +794,7 @@ mod tests {
                 let deriv_div_dx = ad_div.eval(df1_dx).unwrap();
                 let deriv_div_dy = ad_div.eval(df1_dy).unwrap();
 
-                let mut ad_log = AutoDiff::new();
+                let mut ad_log = AutoDiff::<f64>::new();
                 let x2 = ad_log.var(x_val).unwrap();
                 let y2 = ad_log.var(y_val).unwrap();
                 let f2 = ad_log.div_log(x2, y2);
@@ -817,7 +824,7 @@ mod tests {
         use crate::AutoDiff;
 
         for &x_val in &[1.0, 2.0, 3.0] {
-            let mut ad = AutoDiff::new();
+            let mut ad = AutoDiff::<f64>::new();
             let x = ad.var(x_val).unwrap();
             let f = ad.powi_log(x, 3);
             let df = ad.differentiate(f, x).unwrap();
@@ -843,14 +850,14 @@ mod tests {
 
         for &x_val in &[0.5, 1.0, 2.0, 4.0] {
             for &p in &[-3.0, -1.5, 2.5] {
-                let mut ad_pow = AutoDiff::new();
+                let mut ad_pow = AutoDiff::<f64>::new();
                 let x1 = ad_pow.var(x_val).unwrap();
                 let f1 = ad_pow.powf(x1, p);
                 let df1 = ad_pow.differentiate(f1, x1).unwrap();
                 let d2f1 = ad_pow.differentiate(df1, x1).unwrap();
                 let d2_pow = ad_pow.eval(d2f1).unwrap();
 
-                let mut ad_log = AutoDiff::new();
+                let mut ad_log = AutoDiff::<f64>::new();
                 let x2 = ad_log.var(x_val).unwrap();
                 let f2 = ad_log.powf_log(x2, p);
                 let df2 = ad_log.differentiate(f2, x2).unwrap();
@@ -878,7 +885,7 @@ mod tests {
     fn two_body_hessian_pow_log_f32_stable() {
         use crate::AutoDiff;
 
-        let mut ad = AutoDiff::new();
+        let mut ad = AutoDiff::<f64>::new();
         let rx = ad.var(0.0).unwrap();
         let ry = ad.var(0.0).unwrap();
         let rz = ad.var(0.0).unwrap();
@@ -1011,7 +1018,7 @@ mod tests {
         // f = x / y, d²f/dxdy = -1/y²
         for &x_val in &[1.0, 2.0, 3.0] {
             for &y_val in &[0.5, 1.0, 2.0] {
-                let mut ad_div = AutoDiff::new();
+                let mut ad_div = AutoDiff::<f64>::new();
                 let x1 = ad_div.var(x_val).unwrap();
                 let y1 = ad_div.var(y_val).unwrap();
                 let f1 = ad_div.div(x1, y1);
@@ -1019,7 +1026,7 @@ mod tests {
                 let d2f1 = ad_div.differentiate(df1, y1).unwrap();
                 let d2_div = ad_div.eval(d2f1).unwrap();
 
-                let mut ad_log = AutoDiff::new();
+                let mut ad_log = AutoDiff::<f64>::new();
                 let x2 = ad_log.var(x_val).unwrap();
                 let y2 = ad_log.var(y_val).unwrap();
                 let f2 = ad_log.div_log(x2, y2);
@@ -1049,7 +1056,7 @@ mod tests {
         use crate::AutoDiff;
 
         for &(x_val, p) in &[(2.0, 3.0), (4.0, 0.5), (3.0, -2.0), (1.0, 10.0)] {
-            let mut ad = AutoDiff::new();
+            let mut ad = AutoDiff::<f64>::new();
             let x = ad.var(x_val).unwrap();
             let f_pow = ad.powf(x, p);
             let f_log = ad.powf_log(x, p);
@@ -1071,7 +1078,7 @@ mod tests {
         use crate::AutoDiff;
 
         for &(x_val, y_val) in &[(6.0, 3.0), (1.0, 7.0), (10.0, 0.1)] {
-            let mut ad = AutoDiff::new();
+            let mut ad = AutoDiff::<f64>::new();
             let x = ad.var(x_val).unwrap();
             let y = ad.var(y_val).unwrap();
             let f_div = ad.div(x, y);

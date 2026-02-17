@@ -46,7 +46,7 @@ pub fn is_leaf(world: &World, entity: Entity) -> bool {
 
 /// Gets the numerical value of an entity.
 pub fn get_value(world: &World, entity: Entity) -> Option<f64> {
-    world.get::<Value>(entity).map(|v| v.get())
+    world.get::<Value<f64>>(entity).map(|v| v.get())
 }
 
 /// Gets the operation name for a node, if it's an operation.

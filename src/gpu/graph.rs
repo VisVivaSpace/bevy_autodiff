@@ -7,6 +7,8 @@ use wgpu::util::DeviceExt;
 use super::context::GpuContext;
 use super::error::GpuError;
 use super::types::convert_nodes;
+use crate::diff_num::Float;
+
 use crate::compiled::CompiledGraph;
 
 /// Workgroup size — must match the value in shader.wgsl.
@@ -55,7 +57,7 @@ impl GpuContext {
     ///
     /// Translates the node array to GPU format and creates persistent buffers.
     /// The returned [`GpuGraph`] can be reused across multiple [`eval_batch`](GpuGraph::eval_batch) calls.
-    pub fn prepare(&self, graph: &CompiledGraph) -> Result<GpuGraph, GpuError> {
+    pub fn prepare<F: Float>(&self, graph: &CompiledGraph<F>) -> Result<GpuGraph, GpuError> {
         let gpu_nodes = convert_nodes(graph.nodes());
 
         // Build output indices: primal first, then each partial

@@ -2,6 +2,8 @@
 
 use bevy_ecs::component::Component;
 
+use crate::diff_num::Float;
+
 /// Marker component indicating an entity is a variable in the computation graph.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Variable;
@@ -17,25 +19,34 @@ pub struct IsInput;
 pub struct IsConstant;
 
 /// Stores the numerical value of a variable.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct Value(pub(crate) f64);
+///
+/// Generic over `F: Float` — supports f32, f64, and user-defined numeric types.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Value<F: Float>(pub(crate) F);
 
-impl Value {
+// Manual Component impl because derive doesn't handle complex generic bounds well.
+// SAFETY: Component requires Send + Sync + 'static, which our bounds guarantee.
+impl<F: Float> Component for Value<F> {
+    const STORAGE_TYPE: bevy_ecs::component::StorageType = bevy_ecs::component::StorageType::Table;
+    type Mutability = bevy_ecs::component::Mutable;
+}
+
+impl<F: Float> Value<F> {
     /// Creates a new Value component.
     #[inline]
-    pub const fn new(v: f64) -> Self {
+    pub fn new(v: F) -> Self {
         Self(v)
     }
 
     /// Returns the stored value.
     #[inline]
-    pub const fn get(&self) -> f64 {
+    pub fn get(&self) -> F {
         self.0
     }
 
     /// Sets the stored value.
     #[inline]
-    pub fn set(&mut self, v: f64) {
+    pub fn set(&mut self, v: F) {
         self.0 = v;
     }
 }
@@ -120,8 +131,8 @@ mod tests {
     #[test]
     fn test_value_component() {
         let mut world = World::new();
-        let entity = world.spawn(Value::new(3.14)).id();
-        let value = world.entity(entity).get::<Value>().unwrap();
+        let entity = world.spawn(Value::new(3.14_f64)).id();
+        let value = world.entity(entity).get::<Value<f64>>().unwrap();
         assert_eq!(value.get(), 3.14);
     }
 
@@ -129,8 +140,8 @@ mod tests {
     fn test_value_special_values() {
         assert!(Value::new(f64::INFINITY).get().is_infinite());
         assert!(Value::new(f64::NAN).get().is_nan());
-        assert_eq!(Value::new(0.0).get(), 0.0);
-        assert_eq!(Value::new(-0.0).get(), -0.0);
+        assert_eq!(Value::new(0.0_f64).get(), 0.0);
+        assert_eq!(Value::new(-0.0_f64).get(), -0.0);
     }
 
     #[test]

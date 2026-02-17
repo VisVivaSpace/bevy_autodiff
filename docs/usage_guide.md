@@ -12,69 +12,82 @@
 
 ## Tier 1: `#[autodiff]` Proc-Macro (Recommended)
 
-The `#[autodiff]` attribute transforms regular Rust functions into computation graph builders. Write your function with `Var` parameters and natural operators — the macro handles the rest.
+The `#[autodiff]` attribute transforms regular Rust functions into dual-use functions generic over `T: DiffNum`. Call with plain floats for direct evaluation, or with `Var` inside `with_context` for AD graph construction.
 
 ### Setup
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.7", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.8", features = ["proc-macros"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use bevy_autodiff::{AutoDiff, Var, autodiff};
+use bevy_autodiff::{AutoDiff, autodiff};
+use bevy_autodiff::ops::with_context;
 
 #[autodiff]
-fn quadratic(x: Var) -> Var {
+fn quadratic(x: f64) -> f64 {
     x * x + 2.0 * x + 1.0
 }
 
+// Direct evaluation — works like a normal function
+assert_eq!(quadratic(2.0_f64), 9.0);
+assert_eq!(quadratic(2.0_f32), 9.0_f32);  // f32 works too
+
+// AD graph construction
 let mut ad = AutoDiff::new();
 let x = ad.var(2.0).unwrap();
-let f = quadratic(&mut ad, x);
+let f = with_context(&mut ad, || quadratic(x));
 
 assert_eq!(ad.eval(f).unwrap(), 9.0);  // f(2) = 4 + 4 + 1
 ```
 
-The macro adds `ad: &mut AutoDiff` as the first parameter. Float literals become constants, operators become graph operations. The function builds the graph and returns a `Var` handle to the output node.
+The macro makes the function generic over `T: DiffNum`. Float literals become `T::from_f64(value)`, operators use `DiffNum` supertraits, and method calls like `.sin()` dispatch through the `DiffNum` trait.
 
 ### What the Macro Transforms
 
 | You write | Macro generates |
 |-----------|----------------|
-| `x + y` | `ad.add(x, y)` |
-| `x - y` | `ad.sub(x, y)` |
-| `x * y` | `ad.mul(x, y)` |
-| `x / y` | `ad.div(x, y)` |
-| `-x` | `ad.neg(x)` |
-| `x.sin()` | `ad.sin(x)` |
-| `x.cos()` | `ad.cos(x)` |
-| `x.exp()` | `ad.exp(x)` |
-| `x.ln()` | `ad.ln(x)` |
-| `x.sqrt()` | `ad.sqrt(x)` |
-| `x.square()` | `ad.square(x)` |
-| `x.powf(y)` | `ad.powf(x, y)` |
-| `x.powi(n)` | `ad.powi(x, n)` |
-| `3.14` | `ad.constant(3.14)` |
+| `x + y` | `x + y` (via `DiffNum: Add`) |
+| `x - y` | `x - y` (via `DiffNum: Sub`) |
+| `x * y` | `x * y` (via `DiffNum: Mul`) |
+| `x / y` | `x / y` (via `DiffNum: Div`) |
+| `-x` | `-x` (via `DiffNum: Neg`) |
+| `x.sin()` | `DiffNum::sin(x)` |
+| `x.cos()` | `DiffNum::cos(x)` |
+| `x.exp()` | `DiffNum::exp(x)` |
+| `x.ln()` | `DiffNum::ln(x)` |
+| `x.sqrt()` | `DiffNum::sqrt(x)` |
+| `x.square()` | `DiffNum::square(x)` |
+| `x.powf(y)` | `DiffNum::powf(x, y)` |
+| `x.powi(n)` | `DiffNum::powi(x, n)` |
+| `3.14` | `T::from_f64(3.14)` |
+| `f64`/`f32`/`Var` params | `T` |
 
-All trig, hyperbolic, and inverse functions are supported. See the macro documentation for the full list.
+All trig, hyperbolic, and inverse functions are supported. Free function calls like `sin(x)` are also transformed to method syntax.
 
 ### Multivariate Functions
 
 ```rust
+use bevy_autodiff::ops::with_context;
+
 #[autodiff]
-fn rosenbrock(x: Var, y: Var) -> Var {
+fn rosenbrock(x: f64, y: f64) -> f64 {
     let a = 1.0;
     let b = 100.0;
     (a - x) * (a - x) + b * (y - x * x) * (y - x * x)
 }
 
+// Direct evaluation
+assert_eq!(rosenbrock(1.0, 1.0), 0.0);
+
+// AD graph construction
 let mut ad = AutoDiff::new();
 let x = ad.var(1.0).unwrap();
 let y = ad.var(1.0).unwrap();
-let f = rosenbrock(&mut ad, x, y);
+let f = with_context(&mut ad, || rosenbrock(x, y));
 
 // Compile and evaluate
 let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
@@ -88,7 +101,7 @@ When computing second-order derivatives that will be evaluated in f32 (e.g., on 
 
 ```rust
 #[autodiff(stable_derivatives)]
-fn gravity(r2: Var) -> Var {
+fn gravity(r2: f64) -> f64 {
     // pow and / are automatically routed to pow_log and div_log
     r2.powf(-1.5) * r2
 }
@@ -96,11 +109,44 @@ fn gravity(r2: Var) -> Var {
 
 This produces identical primal values but avoids catastrophic cancellation in f32 at second order. See [Numerical Precision](numerical_precision.md) for the mathematical details.
 
+### Non-Float Parameters
+
+Parameters typed as `i32` (or any type other than `f64`, `f32`, `Var`) are left untransformed — only float/Var types become generic `T`:
+
+```rust
+#[autodiff]
+fn power(x: f64, n: i32) -> f64 {
+    x.powi(n)
+}
+
+// Works with all numeric types — n stays i32
+assert_eq!(power(2.0_f64, 3), 8.0);
+assert_eq!(power(2.0_f32, 3), 8.0_f32);
+```
+
 ### Limitations
 
-- Only transforms expressions, not control flow (`if`/`else`, loops)
-- Variables bound with `let` to float values are treated as constants
-- The function must have `Var` parameters and return `Var`
+- **No control flow**: Only transforms expressions, not `if`/`else`, `match`, or loops
+- **No comparisons**: `PartialOrd` is not available on `DiffNum`, so comparison operators (`<`, `>`, etc.) cannot be used in generic functions
+- **Let bindings**: Variables bound with `let` to float values become `T::from_f64(value)` constants
+- **Parameter types**: Only `f64`, `f32`, and `Var` parameter types are replaced with `T`; all other types (e.g., `i32`, `usize`) are left unchanged
+- **`powi`/`powi_log`**: The exponent argument must be `i32` (literal or variable), not a float
+
+### f32 Graphs
+
+`AutoDiff` is generic over the float type. For f32 computation graphs:
+
+```rust
+use bevy_autodiff::AutoDiff;
+
+let mut ad = AutoDiff::<f32>::new();
+let x = ad.var(2.0_f32).unwrap();
+let f = ad.square(x);
+
+assert_eq!(ad.eval(f).unwrap(), 4.0_f32);
+```
+
+Note: `with_context` / operator overloading is f64-only (because `Var` implements `DiffNum` using a thread-local `AutoDiff<f64>`). For f32 graphs, use `ad.method()` calls or the `expr!` macro.
 
 ## Tier 2: `expr!` Declarative Macro
 

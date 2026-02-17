@@ -51,7 +51,7 @@ use crate::var::Var;
 
 // Thread-local storage for the current AutoDiff context
 thread_local! {
-    static CONTEXT: RefCell<Option<NonNull<AutoDiff>>> = const { RefCell::new(None) };
+    static CONTEXT: RefCell<Option<NonNull<AutoDiff<f64>>>> = const { RefCell::new(None) };
 }
 
 /// Executes a closure with the given `AutoDiff` context active.
@@ -81,12 +81,12 @@ thread_local! {
 /// let f = with_context(&mut ad, || x + y);
 /// assert_eq!(ad.eval(f).unwrap(), 5.0);
 /// ```
-pub fn with_context<F, R>(ad: &mut AutoDiff, f: F) -> R
+pub fn with_context<F, R>(ad: &mut AutoDiff<f64>, f: F) -> R
 where
     F: FnOnce() -> R,
 {
     let ptr =
-        NonNull::new(ad as *mut AutoDiff).expect("internal: mutable reference cannot be null");
+        NonNull::new(ad as *mut AutoDiff<f64>).expect("internal: mutable reference cannot be null");
     CONTEXT.with(|ctx| {
         let old = ctx.borrow_mut().replace(ptr);
         // RAII guard restores the previous context even if f() panics,
@@ -98,7 +98,7 @@ where
 
 /// RAII guard that restores the previous context on drop (including panic unwind).
 struct ContextGuard {
-    old: Option<NonNull<AutoDiff>>,
+    old: Option<NonNull<AutoDiff<f64>>>,
 }
 
 impl Drop for ContextGuard {
@@ -114,15 +114,15 @@ impl Drop for ContextGuard {
 /// # Panics
 ///
 /// Panics if called outside of a `with_context` block.
-fn with_current_context<F, R>(f: F) -> R
+pub(crate) fn with_current_context<F, R>(f: F) -> R
 where
-    F: FnOnce(&mut AutoDiff) -> R,
+    F: FnOnce(&mut AutoDiff<f64>) -> R,
 {
     CONTEXT.with(|ctx| {
         let ptr = ctx.borrow().expect(
             "Operator overloading requires an active AutoDiff context. Use with_context().",
         );
-        // SAFETY: The NonNull<AutoDiff> pointer is valid for the duration of
+        // SAFETY: The NonNull<AutoDiff<f64>> pointer is valid for the duration of
         // the enclosing `with_context()` call, which holds a live &mut AutoDiff.
         // We create a short-lived &mut that does not escape this closure.
         // Operator trait methods (Add, Mul, etc.) run sequentially within a

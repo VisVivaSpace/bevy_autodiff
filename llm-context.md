@@ -24,7 +24,7 @@ Use `bevy_autodiff` when you need:
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.7"
+bevy_autodiff = "0.8"
 ```
 
 ## Core API
@@ -34,22 +34,27 @@ Three ways to build computation graphs (see [Usage Guide](docs/usage_guide.md) f
 ### `#[autodiff]` proc-macro (recommended)
 
 ```rust
-use bevy_autodiff::{AutoDiff, Var, autodiff};
+use bevy_autodiff::{AutoDiff, autodiff};
+use bevy_autodiff::ops::with_context;
 
 #[autodiff]
-fn rosenbrock(x: Var, y: Var) -> Var {
+fn rosenbrock(x: f64, y: f64) -> f64 {
     let a = 1.0;
     let b = 100.0;
     (a - x) * (a - x) + b * (y - x * x) * (y - x * x)
 }
 
+// Direct evaluation — works like a normal function
+assert_eq!(rosenbrock(1.0, 1.0), 0.0);
+
+// AD graph construction
 let mut ad = AutoDiff::new();
 let x = ad.var(1.0).unwrap();
 let y = ad.var(1.0).unwrap();
-let f = rosenbrock(&mut ad, x, y);
+let f = with_context(&mut ad, || rosenbrock(x, y));
 ```
 
-Requires `features = ["proc-macros"]`. Use `#[autodiff(stable_derivatives)]` to route `pow`/`div` through logarithmic variants for f32-stable second-order derivatives.
+Requires `features = ["proc-macros"]`. The macro makes the function generic over `T: DiffNum` — call with floats for direct evaluation, or with `Var` inside `with_context` for graph construction. Use `#[autodiff(stable_derivatives)]` to route `pow`/`div` through logarithmic variants for f32-stable second-order derivatives.
 
 ### `expr!` macro
 
@@ -125,7 +130,7 @@ All operations are methods on `AutoDiff`:
 ### GPU batch evaluation (requires `wgpu` feature)
 
 ```toml
-bevy_autodiff = { version = "0.7", features = ["wgpu"] }
+bevy_autodiff = { version = "0.8", features = ["wgpu"] }
 ```
 
 ```rust
@@ -149,10 +154,11 @@ Generates a standalone WGSL function from a compiled graph. All 23 operations ma
 
 ## Key Types
 
-- `AutoDiff` -- the computation graph context (wraps a Bevy ECS `World`)
-- `Var` -- lightweight `Copy` handle to a graph entity
-- `CompiledGraph` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation. Derives `Clone`, `Component`, `Resource` for Bevy integration.
-- `NodeOp` -- single operation in the compiled flat array
+- `AutoDiff<F>` -- the computation graph context, generic over float type (`f32`, `f64`, `Complex<f64>`, etc.). Wraps a Bevy ECS `World`.
+- `Var` -- lightweight `Copy` handle to a graph entity (float-agnostic)
+- `DiffNum` -- trait for dual-use functions: implemented for `f32`, `f64` (direct evaluation) and `Var` (graph construction)
+- `CompiledGraph<F>` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation. Derives `Clone`, `Component`, `Resource` for Bevy integration.
+- `NodeOp<F>` -- single operation in the compiled flat array
 - `GpuContext` -- holds wgpu device, queue, and compute pipeline (feature `wgpu`). Derives `Resource`.
 - `GpuGraph` -- prepared GPU buffers for a compiled graph (feature `wgpu`). Derives `Component`, `Resource`.
 - `GpuResults` -- GPU evaluation results with values and partials (feature `wgpu`)

@@ -37,11 +37,11 @@ const MU: f64 = 398600.4418;
 ///   [6..42]  STM Φ (6×6, row-major)
 struct TwoBodyStm {
     /// Compiled graph for ax = -μx/r³, with ∂ax/∂(x,y,z)
-    cg_ax: RefCell<CompiledGraph>,
+    cg_ax: RefCell<CompiledGraph<f64>>,
     /// Compiled graph for ay = -μy/r³, with ∂ay/∂(x,y,z)
-    cg_ay: RefCell<CompiledGraph>,
+    cg_ay: RefCell<CompiledGraph<f64>>,
     /// Compiled graph for az = -μz/r³, with ∂az/∂(x,y,z)
-    cg_az: RefCell<CompiledGraph>,
+    cg_az: RefCell<CompiledGraph<f64>>,
 }
 
 /// Builds the two-body force model and compiles its Jacobian.
@@ -101,7 +101,7 @@ fn build_two_body_system() -> TwoBodyStm {
 
 /// Evaluates a compiled acceleration graph at `pos`, returning the
 /// acceleration value and its 3 partial derivatives (one row of G).
-fn eval_accel_row(cg: &RefCell<CompiledGraph>, pos: &[f64; 3]) -> (f64, [f64; 3]) {
+fn eval_accel_row(cg: &RefCell<CompiledGraph<f64>>, pos: &[f64; 3]) -> (f64, [f64; 3]) {
     let mut cg = cg.borrow_mut();
     cg.eval(pos).unwrap();
     let val = cg.value();

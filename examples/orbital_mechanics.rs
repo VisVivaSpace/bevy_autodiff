@@ -9,9 +9,9 @@ use bevy_autodiff::AutoDiff;
 fn main() {
     let mu = 398600.4418; // Earth gravitational parameter (km^3/s^2)
 
-    let x_val = 6778.0;
-    let y_val = 0.0;
-    let z_val = 0.0;
+    let x_val: f64 = 6778.0;
+    let y_val: f64 = 0.0;
+    let z_val: f64 = 0.0;
 
     let mut ad = AutoDiff::new();
 
@@ -48,7 +48,7 @@ fn main() {
     // Validate: autodiff gradient matches the analytical closed-form derivative.
     // V = -mu/r, so dV/dx = mu*x/r^3. This is a closed-form f64 comparison
     // with ~2 rounding operations, so 1e-10 (≈50ε relative) is conservative.
-    let expected_dvdx = mu * x_val / r_val.powi(3);
+    let expected_dvdx: f64 = mu * x_val / r_val.powi(3);
     println!("\nExpected dV/dx = {}", expected_dvdx);
     assert!(
         (grad[0] - expected_dvdx).abs() < 1e-10 * expected_dvdx.abs(),

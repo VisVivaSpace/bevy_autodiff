@@ -1,5 +1,6 @@
 //! GPU-friendly data types and conversion from CPU representations.
 
+use crate::diff_num::Float;
 use bytemuck::{Pod, Zeroable};
 
 use crate::compiled::NodeOp;
@@ -67,7 +68,9 @@ pub(crate) fn binary_op_code(op: BinaryOp) -> u32 {
 }
 
 /// Converts a slice of [`NodeOp`] to GPU-friendly [`GpuNodeOp`] representation.
-pub(crate) fn convert_nodes(nodes: &[NodeOp]) -> Vec<GpuNodeOp> {
+///
+/// Constants are converted to f32 by extracting the real part.
+pub(crate) fn convert_nodes<F: Float>(nodes: &[NodeOp<F>]) -> Vec<GpuNodeOp> {
     nodes
         .iter()
         .map(|node| match *node {
@@ -86,7 +89,7 @@ pub(crate) fn convert_nodes(nodes: &[NodeOp]) -> Vec<GpuNodeOp> {
                 op_code: 0,
                 arg1: 0,
                 arg2: 0,
-                const_val: v as f32,
+                const_val: v.to_f64() as f32,
                 _pad0: 0,
                 _pad1: 0,
                 _pad2: 0,

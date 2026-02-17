@@ -9,8 +9,11 @@
 //! flattened into one forward-pass array.
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use bevy_ecs::entity::Entity;
+
+use crate::diff_num::{DiffNum, Float};
 
 use crate::components::{
     BinaryInputs, BinaryOp, BinaryOpMarker, IsConstant, IsInput, UnaryInput, UnaryOp,
@@ -18,13 +21,15 @@ use crate::components::{
 };
 
 /// A node in the flattened computation graph.
+///
+/// Generic over `F` — the float type stored in constants.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
-pub enum NodeOp {
+pub enum NodeOp<F> {
     /// Read from `inputs[index]`.
     Input(usize),
     /// Fixed constant value.
-    Constant(f64),
+    Constant(F),
     /// Unary operation on node at index `src`.
     Unary { op: UnaryOp, src: usize },
     /// Binary operation on nodes at indices `lhs`, `rhs`.
@@ -60,25 +65,49 @@ pub enum NodeOp {
 /// `CompiledGraph` derives [`Clone`], [`bevy_ecs::component::Component`], and
 /// [`bevy_ecs::resource::Resource`]. Attach cloned graphs to entities and use
 /// `Query::par_iter_mut()` for parallel evaluation across Bevy's `ComputeTaskPool`.
-#[derive(Clone, bevy_ecs::component::Component, bevy_ecs::resource::Resource)]
-pub struct CompiledGraph {
-    nodes: Vec<NodeOp>,
+pub struct CompiledGraph<F: Float> {
+    nodes: Vec<NodeOp<F>>,
     num_inputs: usize,
     output_index: usize,
     partial_outputs: Vec<(Vec<usize>, usize)>,
     partial_lookup: HashMap<Vec<usize>, usize>,
-    values: Vec<f64>,
+    values: Vec<F>,
     /// Adjoint buffer for reverse-mode gradient computation.
-    adjoints: Vec<f64>,
+    adjoints: Vec<F>,
     /// Maps input position i to the node index of `NodeOp::Input(i)`.
     input_node_indices: Vec<usize>,
     /// Reusable output buffer for gradient results (length = num_inputs).
-    gradient_buf: Vec<f64>,
+    gradient_buf: Vec<F>,
     /// Whether eval() has been called at least once.
     has_evaluated: bool,
 }
 
-impl std::fmt::Debug for CompiledGraph {
+// Manual derives because the derive macros don't handle complex generic bounds well.
+impl<F: Float> Clone for CompiledGraph<F> {
+    fn clone(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            num_inputs: self.num_inputs,
+            output_index: self.output_index,
+            partial_outputs: self.partial_outputs.clone(),
+            partial_lookup: self.partial_lookup.clone(),
+            values: self.values.clone(),
+            adjoints: self.adjoints.clone(),
+            input_node_indices: self.input_node_indices.clone(),
+            gradient_buf: self.gradient_buf.clone(),
+            has_evaluated: self.has_evaluated,
+        }
+    }
+}
+
+impl<F: Float> bevy_ecs::component::Component for CompiledGraph<F> {
+    const STORAGE_TYPE: bevy_ecs::component::StorageType = bevy_ecs::component::StorageType::Table;
+    type Mutability = bevy_ecs::component::Mutable;
+}
+
+impl<F: Float> bevy_ecs::resource::Resource for CompiledGraph<F> {}
+
+impl<F: Float> std::fmt::Debug for CompiledGraph<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompiledGraph")
             .field("nodes", &self.nodes.len())
@@ -88,10 +117,10 @@ impl std::fmt::Debug for CompiledGraph {
     }
 }
 
-impl CompiledGraph {
+impl<F: Float> CompiledGraph<F> {
     /// Creates a new CompiledGraph from pre-built components.
     pub(crate) fn new(
-        nodes: Vec<NodeOp>,
+        nodes: Vec<NodeOp<F>>,
         num_inputs: usize,
         output_index: usize,
         partial_outputs: Vec<(Vec<usize>, usize)>,
@@ -117,10 +146,10 @@ impl CompiledGraph {
             output_index,
             partial_outputs,
             partial_lookup,
-            values: vec![0.0; num_nodes],
-            adjoints: vec![0.0; num_nodes],
+            values: vec![F::zero(); num_nodes],
+            adjoints: vec![F::zero(); num_nodes],
             input_node_indices,
-            gradient_buf: vec![0.0; num_inputs],
+            gradient_buf: vec![F::zero(); num_inputs],
             has_evaluated: false,
         }
     }
@@ -133,7 +162,7 @@ impl CompiledGraph {
     ///
     /// Returns [`InputCountMismatch`](crate::error::AutoDiffError::InputCountMismatch) if the number of inputs
     /// does not match the compiled graph's expected input count.
-    pub fn eval(&mut self, inputs: &[f64]) -> Result<(), crate::error::AutoDiffError> {
+    pub fn eval(&mut self, inputs: &[F]) -> Result<(), crate::error::AutoDiffError> {
         if inputs.len() != self.num_inputs {
             return Err(crate::error::AutoDiffError::InputCountMismatch {
                 expected: self.num_inputs,
@@ -161,7 +190,7 @@ impl CompiledGraph {
     ///
     /// Debug-asserts that `eval()` has been called at least once.
     #[inline]
-    pub fn value(&self) -> f64 {
+    pub fn value(&self) -> F {
         debug_assert!(
             self.has_evaluated,
             "CompiledGraph::value() called before eval()"
@@ -177,7 +206,7 @@ impl CompiledGraph {
     ///
     /// Returns [`PartialNotCompiled`](crate::error::AutoDiffError::PartialNotCompiled) if the requested partial
     /// was not included when the graph was compiled.
-    pub fn partial(&self, multi_index: &[usize]) -> Result<f64, crate::error::AutoDiffError> {
+    pub fn partial(&self, multi_index: &[usize]) -> Result<F, crate::error::AutoDiffError> {
         debug_assert!(
             self.has_evaluated,
             "CompiledGraph::partial() called before eval()"
@@ -208,7 +237,7 @@ impl CompiledGraph {
     }
 
     /// Returns a reference to the node array.
-    pub(crate) fn nodes(&self) -> &[NodeOp] {
+    pub(crate) fn nodes(&self) -> &[NodeOp<F>] {
         &self.nodes
     }
 
@@ -244,7 +273,7 @@ impl CompiledGraph {
     /// # Panics
     ///
     /// Debug-asserts that `eval()` has been called at least once.
-    pub fn gradient(&mut self) -> &[f64] {
+    pub fn gradient(&mut self) -> &[F] {
         debug_assert!(
             self.has_evaluated,
             "CompiledGraph::gradient() called before eval()"
@@ -258,22 +287,22 @@ impl CompiledGraph {
     /// Must call `eval()` first so that forward values are populated.
     /// `output_node` is the index into the node array whose gradient is desired.
     /// Returns a slice of length `num_inputs`.
-    pub fn gradient_of(&mut self, output_node: usize) -> &[f64] {
+    pub fn gradient_of(&mut self, output_node: usize) -> &[F] {
         // 1. Zero the adjoint buffer
         for a in self.adjoints.iter_mut() {
-            *a = 0.0;
+            *a = F::zero();
         }
 
         // 2. Seed the output node
-        self.adjoints[output_node] = 1.0;
+        self.adjoints[output_node] = F::one();
 
         // 3. Reverse sweep: walk from output_node down to node 0
         for i in (0..=output_node).rev() {
             let adj = self.adjoints[i];
-            // Bitwise zero check is sound here: adjoints are initialized to 0.0
+            // Bitwise zero check is sound here: adjoints are initialized to F::zero()
             // and only modified by seeding (= 1.0) or accumulation (+= adj * local).
-            // A node with adj == 0.0 contributes nothing downstream, so we skip it.
-            if adj == 0.0 {
+            // A node with adj == zero contributes nothing downstream, so we skip it.
+            if adj == F::zero() {
                 continue;
             }
 
@@ -283,13 +312,13 @@ impl CompiledGraph {
                 }
                 NodeOp::Unary { op, src } => {
                     let local = unary_adjoint(op, self.values[src], self.values[i]);
-                    self.adjoints[src] += adj * local;
+                    self.adjoints[src] = self.adjoints[src] + adj * local;
                 }
                 NodeOp::Binary { op, lhs, rhs } => {
                     let (dl, dr) =
                         binary_adjoint(op, self.values[lhs], self.values[rhs], self.values[i]);
-                    self.adjoints[lhs] += adj * dl;
-                    self.adjoints[rhs] += adj * dr;
+                    self.adjoints[lhs] = self.adjoints[lhs] + adj * dl;
+                    self.adjoints[rhs] = self.adjoints[rhs] + adj * dr;
                 }
             }
         }
@@ -307,7 +336,7 @@ impl CompiledGraph {
     ///
     /// Equivalent to calling `eval(inputs)` followed by `gradient()`.
     /// Returns a slice of length `num_inputs`.
-    pub fn eval_gradient(&mut self, inputs: &[f64]) -> Result<&[f64], crate::error::AutoDiffError> {
+    pub fn eval_gradient(&mut self, inputs: &[F]) -> Result<&[F], crate::error::AutoDiffError> {
         self.eval(inputs)?;
         Ok(self.gradient())
     }
@@ -317,14 +346,14 @@ impl CompiledGraph {
 // Compilation from ECS graph
 // =============================================================================
 
-/// Flattens a set of ECS entities (topologically ordered) into a `Vec<NodeOp>`.
+/// Flattens a set of ECS entities (topologically ordered) into a `Vec<NodeOp<F>>`.
 ///
 /// Returns `(nodes, entity_to_index)`.
-pub(crate) fn flatten_graph(
+pub(crate) fn flatten_graph<F: Float>(
     world: &bevy_ecs::world::World,
     order: &[Entity],
     input_to_pos: &HashMap<Entity, usize>,
-) -> (Vec<NodeOp>, HashMap<Entity, usize>) {
+) -> (Vec<NodeOp<F>>, HashMap<Entity, usize>) {
     let entity_to_index: HashMap<Entity, usize> =
         order.iter().enumerate().map(|(i, &e)| (e, i)).collect();
 
@@ -338,14 +367,14 @@ pub(crate) fn flatten_graph(
             } else {
                 // Input not in our compile list — freeze at current value
                 let val = entity_ref
-                    .get::<Value>()
+                    .get::<Value<F>>()
                     .expect("internal: IsInput entity must have Value")
                     .get();
                 nodes.push(NodeOp::Constant(val));
             }
         } else if entity_ref.contains::<IsConstant>() {
             let val = entity_ref
-                .get::<Value>()
+                .get::<Value<F>>()
                 .expect("internal: IsConstant entity must have Value")
                 .get();
             nodes.push(NodeOp::Constant(val));
@@ -366,7 +395,10 @@ pub(crate) fn flatten_graph(
             nodes.push(NodeOp::Binary { op, lhs, rhs });
         } else {
             // Fallback: use current value as constant
-            let val = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
+            let val = entity_ref
+                .get::<Value<F>>()
+                .map(|v| v.get())
+                .unwrap_or_else(|| F::zero());
             nodes.push(NodeOp::Constant(val));
         }
     }
@@ -412,7 +444,7 @@ fn generate_helper(
 // =============================================================================
 
 /// Apply a unary operation to a value.
-pub(crate) fn apply_unary_value(op: UnaryOp, x: f64) -> f64 {
+pub(crate) fn apply_unary_value<F: DiffNum>(op: UnaryOp, x: F) -> F {
     match op {
         UnaryOp::Neg => -x,
         UnaryOp::Sin => x.sin(),
@@ -433,14 +465,22 @@ pub(crate) fn apply_unary_value(op: UnaryOp, x: f64) -> f64 {
     }
 }
 
+/// Compute x^y using the identity x^y = exp(y * ln(x)).
+///
+/// Equivalent to `x.powf(y)` when x > 0.
+#[inline]
+fn pow_generic<F: DiffNum>(x: F, y: F) -> F {
+    (y * x.ln()).exp()
+}
+
 /// Apply a binary operation to two values.
-pub(crate) fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
+pub(crate) fn apply_binary_value<F: DiffNum>(op: BinaryOp, x: F, y: F) -> F {
     match op {
         BinaryOp::Add => x + y,
         BinaryOp::Sub => x - y,
         BinaryOp::Mul => x * y,
         BinaryOp::Div | BinaryOp::DivLog => x / y,
-        BinaryOp::Pow | BinaryOp::PowLog => x.powf(y),
+        BinaryOp::Pow | BinaryOp::PowLog => pow_generic(x, y),
     }
 }
 
@@ -452,27 +492,29 @@ pub(crate) fn apply_binary_value(op: BinaryOp, x: f64, y: f64) -> f64 {
 ///
 /// Given the forward values `src_val` and `z_val = op(src_val)`,
 /// returns dz/d(src).
-pub(crate) fn unary_adjoint(op: UnaryOp, src_val: f64, z_val: f64) -> f64 {
+pub(crate) fn unary_adjoint<F: DiffNum>(op: UnaryOp, src_val: F, z_val: F) -> F {
+    let one = F::one();
+    let half: F = F::from_f64(0.5);
     match op {
-        UnaryOp::Neg => -1.0,
+        UnaryOp::Neg => -one,
         UnaryOp::Sin => src_val.cos(),
         UnaryOp::Cos => -src_val.sin(),
         UnaryOp::Tan => {
             let c = src_val.cos();
-            1.0 / (c * c)
+            one / (c * c)
         }
         UnaryOp::Exp => z_val,
-        UnaryOp::Ln => 1.0 / src_val,
-        UnaryOp::Sqrt => 0.5 / z_val,
+        UnaryOp::Ln => one / src_val,
+        UnaryOp::Sqrt => half / z_val,
         UnaryOp::Sinh => src_val.cosh(),
         UnaryOp::Cosh => src_val.sinh(),
-        UnaryOp::Tanh => 1.0 - z_val * z_val,
-        UnaryOp::Asin => 1.0 / (1.0 - src_val * src_val).sqrt(),
-        UnaryOp::Acos => -1.0 / (1.0 - src_val * src_val).sqrt(),
-        UnaryOp::Atan => 1.0 / (1.0 + src_val * src_val),
-        UnaryOp::Asinh => 1.0 / (src_val * src_val + 1.0).sqrt(),
-        UnaryOp::Acosh => 1.0 / (src_val * src_val - 1.0).sqrt(),
-        UnaryOp::Atanh => 1.0 / (1.0 - src_val * src_val),
+        UnaryOp::Tanh => one - z_val * z_val,
+        UnaryOp::Asin => one / (one - src_val * src_val).sqrt(),
+        UnaryOp::Acos => -one / (one - src_val * src_val).sqrt(),
+        UnaryOp::Atan => one / (one + src_val * src_val),
+        UnaryOp::Asinh => one / (src_val * src_val + one).sqrt(),
+        UnaryOp::Acosh => one / (src_val * src_val - one).sqrt(),
+        UnaryOp::Atanh => one / (one - src_val * src_val),
     }
 }
 
@@ -480,15 +522,16 @@ pub(crate) fn unary_adjoint(op: UnaryOp, src_val: f64, z_val: f64) -> f64 {
 ///
 /// Given the forward values `lhs_val`, `rhs_val`, and `z_val = op(lhs_val, rhs_val)`,
 /// returns (dz/d(lhs), dz/d(rhs)).
-pub(crate) fn binary_adjoint(op: BinaryOp, lhs_val: f64, rhs_val: f64, z_val: f64) -> (f64, f64) {
+pub(crate) fn binary_adjoint<F: DiffNum>(op: BinaryOp, lhs_val: F, rhs_val: F, z_val: F) -> (F, F) {
+    let one = F::one();
     match op {
-        BinaryOp::Add => (1.0, 1.0),
-        BinaryOp::Sub => (1.0, -1.0),
+        BinaryOp::Add => (one, one),
+        BinaryOp::Sub => (one, -one),
         BinaryOp::Mul => (rhs_val, lhs_val),
-        BinaryOp::Div => (1.0 / rhs_val, -lhs_val / (rhs_val * rhs_val)),
+        BinaryOp::Div => (one / rhs_val, -lhs_val / (rhs_val * rhs_val)),
         BinaryOp::Pow => {
-            // dz/d(lhs) = rhs * lhs^(rhs-1)
-            let dlhs = rhs_val * lhs_val.powf(rhs_val - 1.0);
+            // dz/d(lhs) = rhs * lhs^(rhs-1) = rhs * exp((rhs-1) * ln(lhs))
+            let dlhs = rhs_val * pow_generic(lhs_val, rhs_val - one);
             // dz/d(rhs) = z * ln(lhs)
             let drhs = z_val * lhs_val.ln();
             (dlhs, drhs)
@@ -502,7 +545,7 @@ pub(crate) fn binary_adjoint(op: BinaryOp, lhs_val: f64, rhs_val: f64, z_val: f6
         }
         BinaryOp::DivLog => {
             // Logarithmic form: same as standard Div for reverse mode
-            (1.0 / rhs_val, -lhs_val / (rhs_val * rhs_val))
+            (one / rhs_val, -lhs_val / (rhs_val * rhs_val))
         }
     }
 }
@@ -979,10 +1022,10 @@ mod tests {
         fn assert_send<T: Send>() {}
         fn assert_sync<T: Sync>() {}
 
-        assert_component::<CompiledGraph>();
-        assert_resource::<CompiledGraph>();
-        assert_clone::<CompiledGraph>();
-        assert_send::<CompiledGraph>();
-        assert_sync::<CompiledGraph>();
+        assert_component::<CompiledGraph<f64>>();
+        assert_resource::<CompiledGraph<f64>>();
+        assert_clone::<CompiledGraph<f64>>();
+        assert_send::<CompiledGraph<f64>>();
+        assert_sync::<CompiledGraph<f64>>();
     }
 }

@@ -16,7 +16,8 @@ This design makes the graph open and extensible: adding new metadata to nodes is
 
 ## Features
 
-- **Write normal Rust functions, get exact derivatives** — `#[autodiff]` transforms regular functions into computation graphs
+- **Write normal Rust functions, get exact derivatives** — `#[autodiff]` makes functions dual-use: evaluate directly with floats or build AD graphs with `Var`
+- **Generic float types** — `AutoDiff<f32>`, `AutoDiff<f64>`, or any type implementing the `Float` trait
 - **GPU batch evaluation** — evaluate at millions of input points in parallel via wgpu (Metal, Vulkan, DX12)
 - **WGSL code generation** — embed derivative functions directly in any shader
 - **Bevy-native** — `CompiledGraph` is a `Component` + `Resource`; use `par_iter_mut()` for parallel evaluation
@@ -29,34 +30,39 @@ This design makes the graph open and extensible: adding new metadata to nodes is
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.7", features = ["proc-macros"] }
+bevy_autodiff = { version = "0.8", features = ["proc-macros"] }
 ```
 
 Without proc-macros (uses `expr!` macro or builder API only):
 
 ```toml
 [dependencies]
-bevy_autodiff = "0.7"
+bevy_autodiff = "0.8"
 ```
 
 ## Quick Start
 
-The `#[autodiff]` attribute lets you write normal Rust functions with operator overloading — the macro transforms them into computation graph builders:
+The `#[autodiff]` attribute transforms regular Rust functions into dual-use functions that work with both plain floats (direct evaluation) and `Var` (graph construction for automatic differentiation):
 
 ```rust
-use bevy_autodiff::{AutoDiff, Var, autodiff};
+use bevy_autodiff::{AutoDiff, autodiff};
+use bevy_autodiff::ops::with_context;
 
 #[autodiff]
-fn rosenbrock(x: Var, y: Var) -> Var {
+fn rosenbrock(x: f64, y: f64) -> f64 {
     let a = 1.0;
     let b = 100.0;
     (a - x) * (a - x) + b * (y - x * x) * (y - x * x)
 }
 
+// Direct evaluation — works like a normal function
+assert_eq!(rosenbrock(1.0, 1.0), 0.0);
+
+// AD graph construction — same function, called with Var
 let mut ad = AutoDiff::new();
 let x = ad.var(1.0).unwrap();
 let y = ad.var(1.0).unwrap();
-let f = rosenbrock(&mut ad, x, y);
+let f = with_context(&mut ad, || rosenbrock(x, y));
 
 // Reverse-mode gradient (recommended for first-order)
 let mut cg = ad.compile_primal(f, &[x, y]).unwrap();
@@ -67,6 +73,8 @@ let grad = cg.gradient();  // [df/dx, df/dy]
 cg.eval(&[1.0, 1.0]).unwrap();
 let grad = cg.gradient();  // [0.0, 0.0] — the minimum
 ```
+
+Under the hood, `#[autodiff]` makes the function generic over `T: DiffNum`. The `DiffNum` trait is implemented for `f32`, `f64` (direct evaluation), and `Var` (graph construction).
 
 For second-order derivatives, use `compile_order`:
 
@@ -85,7 +93,7 @@ The `stable_derivatives` attribute automatically routes power and division opera
 
 ```rust
 #[autodiff(stable_derivatives)]
-fn gravity(r2: Var) -> Var {
+fn gravity(r2: f64) -> f64 {
     // pow and / are automatically routed to pow_log and div_log
     r2.powf(-1.5) * r2  // uses powf_log internally
 }
@@ -114,7 +122,7 @@ Evaluate compiled graphs at millions of input points in parallel on the GPU. Use
 
 ```toml
 [dependencies]
-bevy_autodiff = { version = "0.7", features = ["wgpu"] }
+bevy_autodiff = { version = "0.8", features = ["wgpu"] }
 ```
 
 ```rust
@@ -335,12 +343,12 @@ The test suite validates correctness through:
 
 | Test type | What it validates | Count |
 |-----------|-------------------|-------|
-| Unit tests | Graph construction, all 23 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen, f32 stability, Bevy trait bounds | 313 |
-| Proc-macro tests | `#[autodiff]`, `expr!` macro, `stable_derivatives` attribute | 76 |
+| Unit tests | Graph construction, all 23 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen, f32 graphs, DiffNum trait, Bevy trait bounds | 352 |
+| Proc-macro tests | `#[autodiff]`, `expr!` macro, `stable_derivatives` attribute, dual-use f64/f32 evaluation | 79 |
 | GPU unit tests | NodeOp conversion, GPU dispatch, buffer readback, error paths, Bevy trait bounds | 16 |
 | Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
 | Oracle (GPU vs CPU) | GPU f32 results against CPU f64 for all ops, compositions, partials, batch sizes | 27 |
-| Doc-tests | Code examples in documentation | 15 |
+| Doc-tests | Code examples in documentation | 16 |
 | Cross-validation | Reverse-mode gradient matches forward-mode symbolic partials | 8 (within unit) |
 
 ## Documentation

@@ -4,9 +4,10 @@
 //! - DOT graph output for visualization
 //! - Graph validation
 
+use crate::diff_num::Float;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 
 use crate::components::{
     BinaryInputs, BinaryOpMarker, IsConstant, IsInput, UnaryInput, UnaryOpMarker, Value,
@@ -17,7 +18,7 @@ use crate::var::Var;
 /// Generates a DOT graph representation of the computation graph.
 ///
 /// The output can be visualized using Graphviz or similar tools.
-pub fn to_dot(world: &World, output: Var) -> String {
+pub fn to_dot<F: Float + Display>(world: &World, output: Var) -> String {
     let mut dot = String::from("digraph {\n    rankdir=BT;\n");
 
     // Get all entities in topological order
@@ -29,7 +30,7 @@ pub fn to_dot(world: &World, output: Var) -> String {
     // Generate node definitions
     for (i, &entity) in entities.iter().enumerate() {
         let entity_ref = world.entity(entity);
-        let label = get_node_label(world, entity);
+        let label = get_node_label::<F>(world, entity);
         let shape = if entity_ref.contains::<IsInput>() || entity_ref.contains::<IsConstant>() {
             "ellipse"
         } else {
@@ -77,17 +78,23 @@ pub fn to_dot(world: &World, output: Var) -> String {
 }
 
 /// Gets a human-readable label for a node.
-fn get_node_label(world: &World, entity: Entity) -> String {
+fn get_node_label<F: Float + Display>(world: &World, entity: Entity) -> String {
     let entity_ref = world.entity(entity);
 
     // Input or constant
     if entity_ref.contains::<IsInput>() {
-        let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
+        let value = entity_ref
+            .get::<Value<F>>()
+            .map(|v| v.get())
+            .unwrap_or(F::zero());
         return format!("input={:.4}", value);
     }
 
     if entity_ref.contains::<IsConstant>() {
-        let value = entity_ref.get::<Value>().map(|v| v.get()).unwrap_or(0.0);
+        let value = entity_ref
+            .get::<Value<F>>()
+            .map(|v| v.get())
+            .unwrap_or(F::zero());
         return format!("const={:.4}", value);
     }
 
@@ -112,7 +119,7 @@ fn get_node_label(world: &World, entity: Entity) -> String {
 /// - All referenced entities exist
 ///
 /// Returns Ok(()) if valid, or Err with a description of the issue.
-pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
+pub fn validate_graph<F: Float>(world: &World, output: Var) -> Result<(), String> {
     let entities = topological_order(world, output.entity())
         .map_err(|_| "cycle detected in computation graph".to_string())?;
 
@@ -165,7 +172,7 @@ pub fn validate_graph(world: &World, output: Var) -> Result<(), String> {
         }
 
         // Check all nodes have Value component
-        if entity_ref.get::<Value>().is_none() {
+        if entity_ref.get::<Value<F>>().is_none() {
             return Err(format!("Node {:?} missing Value component", entity));
         }
     }
@@ -206,7 +213,7 @@ mod tests {
         let x = ad.var(2.0).unwrap();
         let y = ad.square(x);
 
-        let dot = to_dot(ad.world(), y);
+        let dot = to_dot::<f64>(ad.world(), y);
         assert!(dot.contains("digraph"));
         assert!(dot.contains("input="));
         assert!(dot.contains("mul")); // square is x * x
@@ -219,7 +226,7 @@ mod tests {
         let y = ad.var(3.0).unwrap();
         let f = ad.mul(x, y);
 
-        assert!(validate_graph(ad.world(), f).is_ok());
+        assert!(validate_graph::<f64>(ad.world(), f).is_ok());
     }
 
     #[test]

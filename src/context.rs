@@ -1,7 +1,9 @@
 //! AutoDiff context - the main API for building computation graphs.
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
+use crate::diff_num::{DiffNum, Float};
 use bevy_ecs::world::World;
 use bevy_entity_ptr::EntityHandle;
 
@@ -36,7 +38,7 @@ use crate::var::Var;
 /// // Evaluate
 /// assert_eq!(ad.eval(f).unwrap(), 8.0); // 2*3 + 2 = 8
 /// ```
-pub struct AutoDiff {
+pub struct AutoDiff<F: Float> {
     /// The ECS world storing the computation graph.
     world: World,
     /// Counter for assigning input indices (for dependency tracking).
@@ -47,9 +49,11 @@ pub struct AutoDiff {
     cached_zero: Option<Var>,
     /// Cached constant 1.0 entity (avoids creating duplicates in differentiate).
     cached_one: Option<Var>,
+    /// Marker for the float type.
+    _phantom: PhantomData<F>,
 }
 
-impl AutoDiff {
+impl<F: Float> AutoDiff<F> {
     /// Creates a new, empty autodiff context.
     #[inline]
     pub fn new() -> Self {
@@ -59,6 +63,7 @@ impl AutoDiff {
             inputs: Vec::new(),
             cached_zero: None,
             cached_one: None,
+            _phantom: PhantomData,
         }
     }
 
@@ -84,7 +89,7 @@ impl AutoDiff {
     ///
     /// Returns [`InputLimitExceeded`](crate::error::AutoDiffError::InputLimitExceeded) if more than 64 input
     /// variables are created (the dependency bitmask is a u64).
-    pub fn var(&mut self, value: f64) -> Result<Var, crate::error::AutoDiffError> {
+    pub fn var(&mut self, value: F) -> Result<Var, crate::error::AutoDiffError> {
         let input_index = self.input_count;
         if input_index >= 64 {
             return Err(crate::error::AutoDiffError::InputLimitExceeded { count: input_index });
@@ -111,7 +116,7 @@ impl AutoDiff {
     /// Constants have zero derivatives with respect to all inputs.
     /// They are useful for embedding fixed values in the computation graph.
     #[must_use]
-    pub fn constant(&mut self, value: f64) -> Var {
+    pub fn constant(&mut self, value: F) -> Var {
         let entity = self
             .world
             .spawn((
@@ -137,10 +142,10 @@ impl AutoDiff {
     ///
     /// Returns [`MissingValue`](crate::error::AutoDiffError::MissingValue) if the variable does not have
     /// a `Value` component (e.g., the entity is from a different context).
-    pub fn eval(&self, var: Var) -> Result<f64, crate::error::AutoDiffError> {
+    pub fn eval(&self, var: Var) -> Result<F, crate::error::AutoDiffError> {
         self.world
             .entity(var.entity())
-            .get::<Value>()
+            .get::<Value<F>>()
             .map(|v| v.get())
             .ok_or(crate::error::AutoDiffError::MissingValue)
     }
@@ -148,10 +153,10 @@ impl AutoDiff {
     /// Internal eval that panics on missing Value.
     /// Used by internal helpers (binary_op, unary_op, smart_*, is_const_value)
     /// where the caller guarantees the entity has a Value component.
-    fn eval_unchecked(&self, var: Var) -> f64 {
+    fn eval_unchecked(&self, var: Var) -> F {
         self.world
             .entity(var.entity())
-            .get::<Value>()
+            .get::<Value<F>>()
             .map(|v| v.get())
             .expect("internal: Variable must have Value component")
     }
@@ -161,7 +166,7 @@ impl AutoDiff {
     /// # Errors
     ///
     /// Returns [`NotAnInput`](crate::error::AutoDiffError::NotAnInput) if the variable is not an input variable.
-    pub fn set_input(&mut self, var: Var, value: f64) -> Result<(), crate::error::AutoDiffError> {
+    pub fn set_input(&mut self, var: Var, value: F) -> Result<(), crate::error::AutoDiffError> {
         let entity = var.entity();
 
         // Verify it's an input
@@ -170,7 +175,7 @@ impl AutoDiff {
         }
 
         // Update value
-        if let Some(mut val) = self.world.entity_mut(entity).get_mut::<Value>() {
+        if let Some(mut val) = self.world.entity_mut(entity).get_mut::<Value<F>>() {
             val.set(value);
         }
         Ok(())
@@ -210,7 +215,7 @@ impl AutoDiff {
     /// Creates a new variable representing a raised to the power b: a^b
     #[must_use]
     pub fn pow(&mut self, base: Var, exponent: Var) -> Var {
-        self.binary_op(BinaryOp::Pow, base, exponent, |x, y| x.powf(y))
+        self.binary_op(BinaryOp::Pow, base, exponent, |x, y| (y * x.ln()).exp())
     }
 
     /// Creates a new variable representing a^b using logarithmic differentiation.
@@ -231,7 +236,7 @@ impl AutoDiff {
     /// **Requirement:** `base > 0`. Produces NaN if the base is zero or negative.
     #[must_use]
     pub fn pow_log(&mut self, base: Var, exponent: Var) -> Var {
-        self.binary_op(BinaryOp::PowLog, base, exponent, |x, y| x.powf(y))
+        self.binary_op(BinaryOp::PowLog, base, exponent, |x, y| (y * x.ln()).exp())
     }
 
     /// Creates a new variable representing a/b using logarithmic differentiation.
@@ -257,7 +262,7 @@ impl AutoDiff {
     /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
     #[must_use]
     pub fn powi_log(&mut self, x: Var, n: i32) -> Var {
-        let n_const = self.constant(n as f64);
+        let n_const = self.constant(F::from_f64(n as f64));
         self.pow_log(x, n_const)
     }
 
@@ -267,13 +272,13 @@ impl AutoDiff {
     ///
     /// **Requirement:** `x > 0`. Produces NaN if x is zero or negative.
     #[must_use]
-    pub fn powf_log(&mut self, x: Var, p: f64) -> Var {
+    pub fn powf_log(&mut self, x: Var, p: F) -> Var {
         let p_const = self.constant(p);
         self.pow_log(x, p_const)
     }
 
     /// Internal helper for creating binary operations.
-    fn binary_op(&mut self, op: BinaryOp, a: Var, b: Var, f: fn(f64, f64) -> f64) -> Var {
+    fn binary_op(&mut self, op: BinaryOp, a: Var, b: Var, f: fn(F, F) -> F) -> Var {
         // Get values
         let a_val = self.eval_unchecked(a);
         let b_val = self.eval_unchecked(b);
@@ -321,19 +326,19 @@ impl AutoDiff {
     /// Creates a new variable representing sin(x)
     #[must_use]
     pub fn sin(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Sin, x, f64::sin)
+        self.unary_op(UnaryOp::Sin, x, DiffNum::sin)
     }
 
     /// Creates a new variable representing cos(x)
     #[must_use]
     pub fn cos(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Cos, x, f64::cos)
+        self.unary_op(UnaryOp::Cos, x, DiffNum::cos)
     }
 
     /// Creates a new variable representing exp(x) = e^x
     #[must_use]
     pub fn exp(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Exp, x, f64::exp)
+        self.unary_op(UnaryOp::Exp, x, DiffNum::exp)
     }
 
     /// Creates a new variable representing ln(x)
@@ -342,7 +347,7 @@ impl AutoDiff {
     /// Returns NaN for negative inputs, -infinity for zero.
     #[must_use]
     pub fn ln(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Ln, x, f64::ln)
+        self.unary_op(UnaryOp::Ln, x, DiffNum::ln)
     }
 
     /// Creates a new variable representing sqrt(x)
@@ -351,31 +356,31 @@ impl AutoDiff {
     /// Returns NaN for negative inputs.
     #[must_use]
     pub fn sqrt(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Sqrt, x, f64::sqrt)
+        self.unary_op(UnaryOp::Sqrt, x, DiffNum::sqrt)
     }
 
     /// Creates a new variable representing sinh(x)
     #[must_use]
     pub fn sinh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Sinh, x, f64::sinh)
+        self.unary_op(UnaryOp::Sinh, x, DiffNum::sinh)
     }
 
     /// Creates a new variable representing cosh(x)
     #[must_use]
     pub fn cosh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Cosh, x, f64::cosh)
+        self.unary_op(UnaryOp::Cosh, x, DiffNum::cosh)
     }
 
     /// Creates a new variable representing tan(x)
     #[must_use]
     pub fn tan(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Tan, x, f64::tan)
+        self.unary_op(UnaryOp::Tan, x, DiffNum::tan)
     }
 
     /// Creates a new variable representing tanh(x)
     #[must_use]
     pub fn tanh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Tanh, x, f64::tanh)
+        self.unary_op(UnaryOp::Tanh, x, DiffNum::tanh)
     }
 
     /// Creates a new variable representing asin(x)
@@ -384,7 +389,7 @@ impl AutoDiff {
     /// Returns NaN for inputs outside [-1, 1].
     #[must_use]
     pub fn asin(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Asin, x, f64::asin)
+        self.unary_op(UnaryOp::Asin, x, DiffNum::asin)
     }
 
     /// Creates a new variable representing acos(x)
@@ -393,19 +398,19 @@ impl AutoDiff {
     /// Returns NaN for inputs outside [-1, 1].
     #[must_use]
     pub fn acos(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Acos, x, f64::acos)
+        self.unary_op(UnaryOp::Acos, x, DiffNum::acos)
     }
 
     /// Creates a new variable representing atan(x)
     #[must_use]
     pub fn atan(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Atan, x, f64::atan)
+        self.unary_op(UnaryOp::Atan, x, DiffNum::atan)
     }
 
     /// Creates a new variable representing asinh(x)
     #[must_use]
     pub fn asinh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Asinh, x, f64::asinh)
+        self.unary_op(UnaryOp::Asinh, x, DiffNum::asinh)
     }
 
     /// Creates a new variable representing acosh(x)
@@ -414,7 +419,7 @@ impl AutoDiff {
     /// Returns NaN for inputs less than 1.
     #[must_use]
     pub fn acosh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Acosh, x, f64::acosh)
+        self.unary_op(UnaryOp::Acosh, x, DiffNum::acosh)
     }
 
     /// Creates a new variable representing atanh(x)
@@ -423,11 +428,11 @@ impl AutoDiff {
     /// Returns NaN for inputs outside (-1, 1).
     #[must_use]
     pub fn atanh(&mut self, x: Var) -> Var {
-        self.unary_op(UnaryOp::Atanh, x, f64::atanh)
+        self.unary_op(UnaryOp::Atanh, x, DiffNum::atanh)
     }
 
     /// Internal helper for creating unary operations.
-    fn unary_op(&mut self, op: UnaryOp, x: Var, f: fn(f64) -> f64) -> Var {
+    fn unary_op(&mut self, op: UnaryOp, x: Var, f: fn(F) -> F) -> Var {
         let x_val = self.eval_unchecked(x);
         let result = f(x_val);
 
@@ -467,13 +472,13 @@ impl AutoDiff {
     /// Creates a new variable representing x^n for integer n
     #[must_use]
     pub fn powi(&mut self, x: Var, n: i32) -> Var {
-        let n_const = self.constant(n as f64);
+        let n_const = self.constant(F::from_f64(n as f64));
         self.pow(x, n_const)
     }
 
     /// Creates a new variable representing x^p for float p
     #[must_use]
-    pub fn powf(&mut self, x: Var, p: f64) -> Var {
+    pub fn powf(&mut self, x: Var, p: F) -> Var {
         let p_const = self.constant(p);
         self.pow(x, p_const)
     }
@@ -527,7 +532,7 @@ impl AutoDiff {
     }
 
     /// Gathers current values of all input variables.
-    fn gather_input_values(&self) -> Vec<f64> {
+    fn gather_input_values(&self) -> Vec<F> {
         self.inputs
             .iter()
             .map(|&v| self.eval_unchecked(v))
@@ -545,7 +550,7 @@ impl AutoDiff {
     /// Sets multiple input values at once.
     ///
     /// Returns an error if any variable is not an input variable.
-    pub fn set_inputs(&mut self, inputs: &[(Var, f64)]) -> Result<(), crate::error::AutoDiffError> {
+    pub fn set_inputs(&mut self, inputs: &[(Var, F)]) -> Result<(), crate::error::AutoDiffError> {
         for &(var, value) in inputs {
             self.set_input(var, value)?;
         }
@@ -687,7 +692,7 @@ impl AutoDiff {
             }
             UnaryOp::Sqrt => {
                 // d(sqrt(a)) = da / (2 * sqrt(a)) = da / (2 * z)
-                let two = self.constant(2.0);
+                let two = self.constant(F::from_f64(2.0));
                 let two_z = self.mul(two, z);
                 self.smart_div(da, two_z)
             }
@@ -785,17 +790,17 @@ impl AutoDiff {
                 self.smart_div(numer, b2)
             }
             BinaryOp::Pow => {
-                let da_is_zero = self.is_const_value(da, 0.0);
-                let db_is_zero = self.is_const_value(db, 0.0);
+                let da_is_zero = self.is_const_value(da, F::zero());
+                let db_is_zero = self.is_const_value(db, F::zero());
 
                 if da_is_zero && db_is_zero {
                     // Both inputs constant wrt wrt
-                    self.constant(0.0)
+                    self.constant(F::zero())
                 } else if db_is_zero {
                     // d(a^b) = b * a^(b-1) * da  (b constant wrt wrt)
                     // Special case: b == 0 means d(a^0)/d(wrt) = d(1)/d(wrt) = 0
-                    if self.is_const_value(b, 0.0) {
-                        return self.constant(0.0);
+                    if self.is_const_value(b, F::zero()) {
+                        return self.constant(F::zero());
                     }
                     let one = self.one();
                     let b_minus_1 = self.sub(b, one);
@@ -821,15 +826,15 @@ impl AutoDiff {
                 // Logarithmic differentiation: d(a^b) = a^b * (db*ln(a) + b*da/a)
                 // The key difference from Pow: when b is constant, uses z*b*(da/a)
                 // instead of b*a^(b-1)*da, avoiding catastrophic cancellation in f32.
-                let da_is_zero = self.is_const_value(da, 0.0);
-                let db_is_zero = self.is_const_value(db, 0.0);
+                let da_is_zero = self.is_const_value(da, F::zero());
+                let db_is_zero = self.is_const_value(db, F::zero());
 
                 if da_is_zero && db_is_zero {
-                    self.constant(0.0)
+                    self.constant(F::zero())
                 } else if db_is_zero {
                     // d(a^b) = z * b * (da / a)  — logarithmic form
-                    if self.is_const_value(b, 0.0) {
-                        return self.constant(0.0);
+                    if self.is_const_value(b, F::zero()) {
+                        return self.constant(F::zero());
                     }
                     let da_over_a = self.div(da, a);
                     let b_da_over_a = self.smart_mul(b, da_over_a);
@@ -851,11 +856,11 @@ impl AutoDiff {
             }
             BinaryOp::DivLog => {
                 // Logarithmic differentiation: d(a/b) = (a/b) * (da/a - db/b)
-                let da_is_zero = self.is_const_value(da, 0.0);
-                let db_is_zero = self.is_const_value(db, 0.0);
+                let da_is_zero = self.is_const_value(da, F::zero());
+                let db_is_zero = self.is_const_value(db, F::zero());
 
                 if da_is_zero && db_is_zero {
-                    self.constant(0.0)
+                    self.constant(F::zero())
                 } else if db_is_zero {
                     // d(a/b) = z * (da / a)  (b constant)
                     let da_over_a = self.div(da, a);
@@ -906,7 +911,7 @@ impl AutoDiff {
         output: Var,
         input: Var,
         order: usize,
-    ) -> Result<f64, crate::error::AutoDiffError> {
+    ) -> Result<F, crate::error::AutoDiffError> {
         if order == 0 {
             return self.eval(output);
         }
@@ -946,7 +951,7 @@ impl AutoDiff {
         output: Var,
         multi_index: &[usize],
         inputs: &[Var],
-    ) -> Result<f64, crate::error::AutoDiffError> {
+    ) -> Result<F, crate::error::AutoDiffError> {
         if multi_index.len() != inputs.len() {
             return Err(crate::error::AutoDiffError::MultiIndexLengthMismatch {
                 expected: inputs.len(),
@@ -992,7 +997,7 @@ impl AutoDiff {
     /// let grad = ad.gradient(f).unwrap();
     /// assert_eq!(grad, vec![2.0, 4.0]); // [2x, 2y]
     /// ```
-    pub fn gradient(&mut self, output: Var) -> Result<Vec<f64>, crate::error::AutoDiffError> {
+    pub fn gradient(&mut self, output: Var) -> Result<Vec<F>, crate::error::AutoDiffError> {
         let all_inputs: Vec<Var> = self.inputs.clone();
         let n = all_inputs.len();
         if n == 0 {
@@ -1032,7 +1037,7 @@ impl AutoDiff {
         output: Var,
         inputs: &[Var],
         partials: &[Vec<usize>],
-    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
+    ) -> Result<crate::compiled::CompiledGraph<F>, crate::error::AutoDiffError> {
         use crate::compiled::{CompiledGraph, flatten_graph};
         use crate::graph::topology::topological_order_multi;
 
@@ -1093,7 +1098,7 @@ impl AutoDiff {
         &mut self,
         output: Var,
         inputs: &[Var],
-    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
+    ) -> Result<crate::compiled::CompiledGraph<F>, crate::error::AutoDiffError> {
         self.compile(output, inputs, &[])
     }
 
@@ -1106,7 +1111,7 @@ impl AutoDiff {
         output: Var,
         inputs: &[Var],
         max_order: usize,
-    ) -> Result<crate::compiled::CompiledGraph, crate::error::AutoDiffError> {
+    ) -> Result<crate::compiled::CompiledGraph<F>, crate::error::AutoDiffError> {
         let partials = crate::compiled::generate_multi_indices(inputs.len(), max_order);
         self.compile(output, inputs, &partials)
     }
@@ -1120,7 +1125,7 @@ impl AutoDiff {
         if let Some(v) = self.cached_zero {
             return v;
         }
-        let v = self.constant(0.0);
+        let v = self.constant(F::zero());
         self.cached_zero = Some(v);
         v
     }
@@ -1130,7 +1135,7 @@ impl AutoDiff {
         if let Some(v) = self.cached_one {
             return v;
         }
-        let v = self.constant(1.0);
+        let v = self.constant(F::one());
         self.cached_one = Some(v);
         v
     }
@@ -1145,16 +1150,16 @@ impl AutoDiff {
     /// returns `false` for NaN. This is intentional: the smart_* helpers use it
     /// to fold identities like `0 * x → 0`, which deliberately deviates from
     /// IEEE 754 (where `0 * NaN = NaN`). See smart_mul / smart_div doc comments.
-    fn is_const_value(&self, v: Var, val: f64) -> bool {
+    fn is_const_value(&self, v: Var, val: F) -> bool {
         self.is_constant(v) && self.eval_unchecked(v) == val
     }
 
     /// Add with constant folding: skip if either is 0, fold if both constant.
     fn smart_add(&mut self, a: Var, b: Var) -> Var {
-        if self.is_const_value(a, 0.0) {
+        if self.is_const_value(a, F::zero()) {
             return b;
         }
-        if self.is_const_value(b, 0.0) {
+        if self.is_const_value(b, F::zero()) {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
@@ -1165,10 +1170,10 @@ impl AutoDiff {
 
     /// Subtract with constant folding: skip if b is 0, negate if a is 0.
     fn smart_sub(&mut self, a: Var, b: Var) -> Var {
-        if self.is_const_value(b, 0.0) {
+        if self.is_const_value(b, F::zero()) {
             return a;
         }
-        if self.is_const_value(a, 0.0) {
+        if self.is_const_value(a, F::zero()) {
             return self.smart_neg(b);
         }
         if self.is_constant(a) && self.is_constant(b) {
@@ -1184,13 +1189,13 @@ impl AutoDiff {
     /// is correct because a zero derivative means the branch does not contribute,
     /// regardless of the other factor's value at the evaluation point.
     fn smart_mul(&mut self, a: Var, b: Var) -> Var {
-        if self.is_const_value(a, 0.0) || self.is_const_value(b, 0.0) {
-            return self.constant(0.0);
+        if self.is_const_value(a, F::zero()) || self.is_const_value(b, F::zero()) {
+            return self.constant(F::zero());
         }
-        if self.is_const_value(a, 1.0) {
+        if self.is_const_value(a, F::one()) {
             return b;
         }
-        if self.is_const_value(b, 1.0) {
+        if self.is_const_value(b, F::one()) {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
@@ -1201,7 +1206,7 @@ impl AutoDiff {
 
     /// Negate with constant folding: skip if 0, fold if constant.
     fn smart_neg(&mut self, a: Var) -> Var {
-        if self.is_const_value(a, 0.0) {
+        if self.is_const_value(a, F::zero()) {
             return a;
         }
         if self.is_constant(a) {
@@ -1217,10 +1222,10 @@ impl AutoDiff {
     /// regardless of the denominator. This prevents NaN poisoning the derivative graph
     /// when subexpressions hit domain boundaries.
     fn smart_div(&mut self, a: Var, b: Var) -> Var {
-        if self.is_const_value(a, 0.0) {
-            return self.constant(0.0);
+        if self.is_const_value(a, F::zero()) {
+            return self.constant(F::zero());
         }
-        if self.is_const_value(b, 1.0) {
+        if self.is_const_value(b, F::one()) {
             return a;
         }
         if self.is_constant(a) && self.is_constant(b) {
@@ -1230,7 +1235,7 @@ impl AutoDiff {
     }
 }
 
-impl Default for AutoDiff {
+impl<F: Float> Default for AutoDiff<F> {
     fn default() -> Self {
         Self::new()
     }
@@ -1243,7 +1248,7 @@ mod tests {
 
     #[test]
     fn test_new_context() {
-        let ad = AutoDiff::new();
+        let ad = AutoDiff::<f64>::new();
         assert_eq!(ad.input_count(), 0);
     }
 
@@ -1349,7 +1354,7 @@ mod tests {
         let x = ad.var(2.0).unwrap();
         let y = ad.var(3.0).unwrap();
         let z = ad.pow(x, y);
-        assert_eq!(ad.eval(z).unwrap(), 8.0);
+        assert_relative_eq!(ad.eval(z).unwrap(), 8.0, epsilon = 1e-14);
     }
 
     // Unary operation tests
@@ -1416,7 +1421,7 @@ mod tests {
         let mut ad = AutoDiff::new();
         let x = ad.var(2.0).unwrap();
         let y = ad.powi(x, 4);
-        assert_eq!(ad.eval(y).unwrap(), 16.0);
+        assert_relative_eq!(ad.eval(y).unwrap(), 16.0, epsilon = 1e-14);
     }
 
     #[test]
@@ -1532,7 +1537,7 @@ mod tests {
 
     #[test]
     fn test_default_context() {
-        let ad = AutoDiff::default();
+        let ad = AutoDiff::<f64>::default();
         assert_eq!(ad.input_count(), 0);
     }
 
@@ -2188,7 +2193,7 @@ mod tests {
     /// Helper: builds a compiled graph for f(x,y) and checks that
     /// reverse-mode gradient matches forward-mode symbolic partials.
     fn assert_reverse_matches_forward(
-        build_fn: impl FnOnce(&mut AutoDiff, Var, Var) -> Var,
+        build_fn: impl FnOnce(&mut AutoDiff<f64>, Var, Var) -> Var,
         points: &[(f64, f64)],
         epsilon: f64,
     ) {
@@ -2318,7 +2323,7 @@ mod tests {
 
     /// Helper for single-input per-operation gradient tests.
     fn assert_gradient_1d(
-        build_fn: impl FnOnce(&mut AutoDiff, Var) -> Var,
+        build_fn: impl FnOnce(&mut AutoDiff<f64>, Var) -> Var,
         points: &[f64],
         expected_fn: impl Fn(f64) -> f64,
         epsilon: f64,

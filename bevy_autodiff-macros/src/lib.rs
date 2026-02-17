@@ -1,73 +1,79 @@
 //! Procedural macros for bevy_autodiff automatic differentiation.
 //!
 //! This crate provides the `#[autodiff]` attribute macro that transforms
-//! functions to work with the bevy_autodiff autodiff system.
+//! functions to be generic over [`DiffNum`](https://docs.rs/bevy_autodiff/latest/bevy_autodiff/trait.DiffNum.html),
+//! enabling dual-use as both direct float computation and automatic
+//! differentiation graph construction.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use bevy_autodiff::Var;
-//! use bevy_autodiff_macros::autodiff;
+//! use bevy_autodiff::{autodiff, DiffNum};
 //!
 //! #[autodiff]
-//! fn quadratic(x: Var) -> Var {
+//! fn quadratic(x: f64) -> f64 {
 //!     x * x + 2.0 * x + 1.0
 //! }
 //!
-//! // Expands to code that uses temporary variables to avoid borrow issues:
-//! // fn quadratic(ad: &mut AutoDiff, x: Var) -> Var {
-//! //     let __t0 = ad.mul(x, x);
-//! //     let __t1 = ad.constant(2.0);
-//! //     let __t2 = ad.mul(__t1, x);
-//! //     let __t3 = ad.add(__t0, __t2);
-//! //     let __t4 = ad.constant(1.0);
-//! //     ad.add(__t3, __t4)
-//! // }
+//! // Direct float evaluation:
+//! assert_eq!(quadratic(3.0_f64), 16.0);
+//!
+//! // AD graph construction:
+//! use bevy_autodiff::{AutoDiff, Var, ops::with_context};
+//! let mut ad = AutoDiff::new();
+//! let x = ad.var(3.0).unwrap();
+//! let f = with_context(&mut ad, || quadratic(x));
+//! assert_eq!(ad.eval(f).unwrap(), 16.0);
 //! ```
 
 use proc_macro::TokenStream;
-use quote::{format_ident, ToTokens};
+use quote::ToTokens;
 use syn::{
     parse_macro_input, parse_quote, visit_mut::VisitMut, Expr, ExprBinary, ExprCall, ExprLit,
-    ExprMethodCall, ExprPath, ExprUnary, FnArg, ItemFn, Lit, Pat, Stmt, UnOp,
+    ExprMethodCall, ExprUnary, FnArg, ItemFn, Lit, Stmt, Type,
 };
 
-/// Transforms a function to work with AutoDiff.
+/// Transforms a function to be generic over `DiffNum`.
 ///
 /// This attribute macro:
-/// - Adds `ad: &mut AutoDiff` as the first parameter
-/// - Transforms arithmetic operators (`+`, `-`, `*`, `/`) to AutoDiff method calls
-/// - Transforms math functions (`sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, etc.) to method calls
-/// - Wraps float literals as `ad.constant(value)`
-/// - Uses temporary variables to avoid borrow checker issues
+/// - Replaces parameter types (`f64`, `f32`, `Var`) with a generic `T: DiffNum`
+/// - Transforms float/integer literals to `T::from_f64(value)`
+/// - Transforms free math function calls (`sin(x)`) to method calls (`(x).sin()`)
+/// - Leaves method calls (`.sin()`, `.cos()`, etc.) as-is (resolved via `DiffNum` bound)
+/// - Leaves arithmetic operators (`+`, `-`, `*`, `/`) as-is (resolved via `DiffNum` supertraits)
 ///
 /// # Example
 ///
 /// ```ignore
-/// use bevy_autodiff::{AutoDiff, Var};
-/// use bevy_autodiff_macros::autodiff;
+/// use bevy_autodiff::{autodiff, DiffNum};
 ///
 /// #[autodiff]
-/// fn rosenbrock(x: Var, y: Var) -> Var {
+/// fn rosenbrock(x: f64, y: f64) -> f64 {
 ///     let a = 1.0;
 ///     let b = 100.0;
 ///     (a - x) * (a - x) + b * (y - x * x) * (y - x * x)
 /// }
 ///
-/// // Usage:
+/// // Direct evaluation with f64:
+/// assert_eq!(rosenbrock(1.0_f64, 1.0), 0.0);
+///
+/// // AD graph construction with Var:
+/// use bevy_autodiff::{AutoDiff, ops::with_context};
 /// let mut ad = AutoDiff::new();
-/// let x = ad.var(1.0);
-/// let y = ad.var(1.0);
-/// let f = rosenbrock(&mut ad, x, y);
+/// let x = ad.var(1.0).unwrap();
+/// let y = ad.var(1.0).unwrap();
+/// let f = with_context(&mut ad, || rosenbrock(x, y));
 /// ```
 ///
 /// # Supported Operations
 ///
-/// - Binary: `+`, `-`, `*`, `/`
-/// - Unary: `-` (negation)
-/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`, `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`, `powi`, `powf`, `square`, `pow_log`, `powi_log`, `powf_log`, `div_log`
-/// - Method syntax: `x.sin()`, `x.cos()`, etc. — transformed to `ad.sin(x)`, `ad.cos(x)`, etc.
-/// - Literals: float and integer literals become `ad.constant(value)`
+/// - Binary: `+`, `-`, `*`, `/` (via `DiffNum` supertraits)
+/// - Unary: `-` (negation, via `Neg` supertrait)
+/// - Functions: `sin`, `cos`, `tan`, `exp`, `ln`, `sqrt`, `sinh`, `cosh`, `tanh`,
+///   `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `pow`, `powi`, `powf`,
+///   `square`, `pow_log`, `powi_log`, `powf_log`, `div_log`
+/// - Method syntax: `x.sin()`, `x.powi(3)`, etc.
+/// - Literals: float and integer literals become `T::from_f64(value)`
 ///
 /// # `stable_derivatives` Attribute
 ///
@@ -81,8 +87,8 @@ use syn::{
 /// # Limitations
 ///
 /// - Only transforms expressions, not control flow (if/else, loops)
-/// - Variables bound with `let` that are floats should be used directly, not as Var
-/// - The function must have `Var` parameters and return `Var`
+/// - `powi`/`powi_log` second argument must be a literal integer, not a variable
+/// - `DiffNum` must be in scope at the definition site (e.g., `use bevy_autodiff::DiffNum;`)
 #[proc_macro_attribute]
 pub fn autodiff(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(item as ItemFn);
@@ -101,44 +107,58 @@ pub fn autodiff(attr: TokenStream, item: TokenStream) -> TokenStream {
         true
     };
 
-    // Add `ad: &mut AutoDiff` as first parameter
-    let ad_param: FnArg = parse_quote!(ad: &mut AutoDiff);
-    func.sig.inputs.insert(0, ad_param);
+    // Add generic parameter T: DiffNum
+    let type_param: syn::GenericParam = parse_quote!(T: DiffNum);
+    func.sig.generics.params.push(type_param);
+
+    // Replace parameter types (f64, f32, Var) with T
+    for param in &mut func.sig.inputs {
+        if let FnArg::Typed(pat_type) = param {
+            if is_autodiff_type(&pat_type.ty) {
+                pat_type.ty = Box::new(parse_quote!(T));
+            }
+        }
+    }
+
+    // Replace return type
+    if let syn::ReturnType::Type(_, ref mut ty) = func.sig.output {
+        if is_autodiff_type(ty) {
+            **ty = parse_quote!(T);
+        }
+    }
 
     // Transform the function body
-    let mut transformer = ExprTransformer::new();
-    transformer.stable_derivatives = stable_derivatives;
+    let mut transformer = DiffNumTransformer { stable_derivatives };
     transformer.visit_item_fn_mut(&mut func);
 
     TokenStream::from(func.into_token_stream())
 }
 
-/// Visitor that transforms expressions for autodiff.
-struct ExprTransformer {
-    /// Names of local variables that are NOT Var types (regular floats)
-    local_float_vars: Vec<String>,
-    /// Counter for generating unique temporary variable names
-    temp_counter: usize,
+/// Check if a type is one we should replace with T.
+fn is_autodiff_type(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        if let Some(ident) = type_path.path.get_ident() {
+            let name = ident.to_string();
+            return matches!(name.as_str(), "f64" | "f32" | "Var");
+        }
+    }
+    false
+}
+
+/// Visitor that transforms expressions for DiffNum-generic functions.
+///
+/// Key transformations:
+/// - Float/int literals → `T::from_f64(value)`
+/// - Free function calls (`sin(x)`) → method calls (`(x).sin()`)
+/// - Method calls stay as-is (resolved via `DiffNum` bound on `T`)
+/// - Binary/unary operators stay as-is (resolved via `DiffNum` supertraits)
+/// - With `stable_derivatives`: `/` → `.div_log()`, pow/powi/powf → log variants
+struct DiffNumTransformer {
     /// When true, routes pow → pow_log, div → div_log for f32-stable derivatives
     stable_derivatives: bool,
 }
 
-impl ExprTransformer {
-    fn new() -> Self {
-        Self {
-            local_float_vars: Vec::new(),
-            temp_counter: 0,
-            stable_derivatives: false,
-        }
-    }
-
-    /// Generate a unique temporary variable name
-    fn next_temp(&mut self) -> syn::Ident {
-        let name = format_ident!("__autodiff_tmp_{}", self.temp_counter);
-        self.temp_counter += 1;
-        name
-    }
-
+impl DiffNumTransformer {
     /// Check if an identifier is a known math function
     fn is_math_function(name: &str) -> bool {
         matches!(
@@ -152,74 +172,80 @@ impl ExprTransformer {
         )
     }
 
-    /// Check if an identifier is a local float variable
-    fn is_local_float(&self, name: &str) -> bool {
-        self.local_float_vars.contains(&name.to_string())
-    }
-
-    /// Transform an expression, returning a block that evaluates to the result.
-    /// This method handles creating temporary variables for nested expressions.
+    /// Recursively transform an expression.
     fn transform_expr(&mut self, expr: &Expr) -> Expr {
         match expr {
             Expr::Binary(binary) => self.transform_binary(binary),
             Expr::Unary(unary) => self.transform_unary(unary),
             Expr::Call(call) => self.transform_call(call),
-            Expr::MethodCall(method_call) => self.transform_method_call(method_call),
+            Expr::MethodCall(mc) => self.transform_method_call(mc),
             Expr::Lit(lit) => self.transform_literal(lit),
-            Expr::Path(path) => self.transform_path(path),
-            Expr::Paren(paren) => self.transform_expr(&paren.expr),
+            Expr::Paren(paren) => {
+                let inner = self.transform_expr(&paren.expr);
+                parse_quote!((#inner))
+            }
             _ => expr.clone(),
         }
     }
 
-    /// Transform a binary expression to a block with temp variables
-    fn transform_binary(&mut self, expr: &ExprBinary) -> Expr {
-        let method_name = match &expr.op {
-            syn::BinOp::Add(_) => "add",
-            syn::BinOp::Sub(_) => "sub",
-            syn::BinOp::Mul(_) => "mul",
-            syn::BinOp::Div(_) => {
-                if self.stable_derivatives { "div_log" } else { "div" }
+    /// Transform a literal to `T::from_f64(value)`.
+    fn transform_literal(&mut self, lit: &ExprLit) -> Expr {
+        match &lit.lit {
+            Lit::Float(f) => {
+                if let Ok(value) = f.base10_parse::<f64>() {
+                    parse_quote!(T::from_f64(#value))
+                } else {
+                    Expr::Lit(lit.clone())
+                }
             }
-            _ => return Expr::Binary(expr.clone()), // Don't transform other operators
-        };
-
-        // Transform operands
-        let left_transformed = self.transform_expr(&expr.left);
-        let right_transformed = self.transform_expr(&expr.right);
-
-        // Create temp variables and the method call
-        let lhs_temp = self.next_temp();
-        let rhs_temp = self.next_temp();
-        let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
-
-        parse_quote!({
-            let #lhs_temp = #left_transformed;
-            let #rhs_temp = #right_transformed;
-            ad.#method(#lhs_temp, #rhs_temp)
-        })
-    }
-
-    /// Transform a unary expression (negation)
-    fn transform_unary(&mut self, expr: &ExprUnary) -> Expr {
-        match &expr.op {
-            UnOp::Neg(_) => {
-                let operand_transformed = self.transform_expr(&expr.expr);
-                let temp = self.next_temp();
-
-                parse_quote!({
-                    let #temp = #operand_transformed;
-                    ad.neg(#temp)
-                })
+            Lit::Int(i) => {
+                if let Ok(value) = i.base10_parse::<i64>() {
+                    let float_value = value as f64;
+                    parse_quote!(T::from_f64(#float_value))
+                } else {
+                    Expr::Lit(lit.clone())
+                }
             }
-            _ => Expr::Unary(expr.clone()),
+            _ => Expr::Lit(lit.clone()),
         }
     }
 
-    /// Transform a function call (for math functions)
-    fn transform_call(&mut self, expr: &ExprCall) -> Expr {
-        // Get the function name
-        let func_name = if let Expr::Path(path) = &*expr.func {
+    /// Transform a binary expression — operators stay as-is, except `/` with `stable_derivatives`.
+    fn transform_binary(&mut self, expr: &ExprBinary) -> Expr {
+        let left = self.transform_expr(&expr.left);
+        let right = self.transform_expr(&expr.right);
+
+        // stable_derivatives: route / to div_log
+        if self.stable_derivatives {
+            if let syn::BinOp::Div(_) = &expr.op {
+                return parse_quote!((#left).div_log(#right));
+            }
+        }
+
+        // Reconstruct with transformed operands, preserving the operator
+        Expr::Binary(ExprBinary {
+            attrs: expr.attrs.clone(),
+            left: Box::new(left),
+            op: expr.op.clone(),
+            right: Box::new(right),
+        })
+    }
+
+    /// Transform a unary expression — operators stay as-is.
+    fn transform_unary(&mut self, expr: &ExprUnary) -> Expr {
+        let operand = self.transform_expr(&expr.expr);
+        Expr::Unary(ExprUnary {
+            attrs: expr.attrs.clone(),
+            op: expr.op.clone(),
+            expr: Box::new(operand),
+        })
+    }
+
+    /// Transform a free function call to a method call on the first argument.
+    ///
+    /// `sin(x)` → `(x).sin()`, `pow(x, y)` → `(x).powf(y)`, etc.
+    fn transform_call(&mut self, call: &ExprCall) -> Expr {
+        let func_name = if let Expr::Path(path) = &*call.func {
             path.path.get_ident().map(|id| id.to_string())
         } else {
             None
@@ -228,8 +254,8 @@ impl ExprTransformer {
         let func_name = match func_name {
             Some(name) if Self::is_math_function(&name) => name,
             _ => {
-                // Not a math function we transform, but transform arguments
-                let mut new_call = expr.clone();
+                // Not a math function — transform arguments, pass through
+                let mut new_call = call.clone();
                 for arg in &mut new_call.args {
                     *arg = self.transform_expr(arg);
                 }
@@ -237,233 +263,162 @@ impl ExprTransformer {
             }
         };
 
-        // Handle pow / pow_log (two Var arguments)
-        if (func_name == "pow" || func_name == "pow_log") && expr.args.len() == 2 {
-            let base = self.transform_expr(&expr.args[0]);
-            let exp = self.transform_expr(&expr.args[1]);
-            let base_temp = self.next_temp();
-            let exp_temp = self.next_temp();
+        match func_name.as_str() {
+            // Single-arg: sin(x) → (x).sin()
+            "sin" | "cos" | "tan" | "exp" | "ln" | "sqrt" | "square"
+            | "sinh" | "cosh" | "tanh"
+            | "asin" | "acos" | "atan"
+            | "asinh" | "acosh" | "atanh" => {
+                if call.args.len() == 1 {
+                    let arg = self.transform_expr(&call.args[0]);
+                    let method = syn::Ident::new(&func_name, proc_macro2::Span::call_site());
+                    parse_quote!((#arg).#method())
+                } else {
+                    Expr::Call(call.clone())
+                }
+            }
 
-            let method_name = if func_name == "pow_log" || self.stable_derivatives {
-                "pow_log"
-            } else {
-                "pow"
-            };
-            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
+            // pow(x, y) → (x).powf(y) or (x).pow_log(y)
+            "pow" | "pow_log" => {
+                if call.args.len() == 2 {
+                    let base = self.transform_expr(&call.args[0]);
+                    let exp = self.transform_expr(&call.args[1]);
+                    if func_name == "pow_log" || self.stable_derivatives {
+                        parse_quote!((#base).pow_log(#exp))
+                    } else {
+                        parse_quote!((#base).powf(#exp))
+                    }
+                } else {
+                    Expr::Call(call.clone())
+                }
+            }
 
-            return parse_quote!({
-                let #base_temp = #base;
-                let #exp_temp = #exp;
-                ad.#method(#base_temp, #exp_temp)
-            });
+            // powi(x, 3) → (x).powi(3) — second arg is raw i32, NOT transformed
+            "powi" | "powi_log" => {
+                if call.args.len() == 2 {
+                    let base = self.transform_expr(&call.args[0]);
+                    let n = &call.args[1]; // raw i32
+                    if func_name == "powi_log" || self.stable_derivatives {
+                        parse_quote!((#base).powi_log(#n))
+                    } else {
+                        parse_quote!((#base).powi(#n))
+                    }
+                } else {
+                    Expr::Call(call.clone())
+                }
+            }
+
+            // powf(x, 0.5) → (x).powf(T::from_f64(0.5))
+            "powf" | "powf_log" => {
+                if call.args.len() == 2 {
+                    let base = self.transform_expr(&call.args[0]);
+                    let exp = self.transform_expr(&call.args[1]); // transforms literal
+                    if func_name == "powf_log" || self.stable_derivatives {
+                        parse_quote!((#base).powf_log(#exp))
+                    } else {
+                        parse_quote!((#base).powf(#exp))
+                    }
+                } else {
+                    Expr::Call(call.clone())
+                }
+            }
+
+            // div_log(x, y) → (x).div_log(y)
+            "div_log" => {
+                if call.args.len() == 2 {
+                    let lhs = self.transform_expr(&call.args[0]);
+                    let rhs = self.transform_expr(&call.args[1]);
+                    parse_quote!((#lhs).div_log(#rhs))
+                } else {
+                    Expr::Call(call.clone())
+                }
+            }
+
+            _ => Expr::Call(call.clone()),
         }
-
-        // Handle powi / powi_log (Var + raw i32)
-        if (func_name == "powi" || func_name == "powi_log") && expr.args.len() == 2 {
-            let base = self.transform_expr(&expr.args[0]);
-            let base_temp = self.next_temp();
-            let exp_arg = &expr.args[1]; // raw i32, not transformed
-
-            let method_name = if func_name == "powi_log" || self.stable_derivatives {
-                "powi_log"
-            } else {
-                "powi"
-            };
-            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
-
-            return parse_quote!({
-                let #base_temp = #base;
-                ad.#method(#base_temp, #exp_arg)
-            });
-        }
-
-        // Handle powf / powf_log (Var + raw f64)
-        if (func_name == "powf" || func_name == "powf_log") && expr.args.len() == 2 {
-            let base = self.transform_expr(&expr.args[0]);
-            let base_temp = self.next_temp();
-            let exp_arg = &expr.args[1]; // raw f64, not transformed
-
-            let method_name = if func_name == "powf_log" || self.stable_derivatives {
-                "powf_log"
-            } else {
-                "powf"
-            };
-            let method = syn::Ident::new(method_name, proc_macro2::Span::call_site());
-
-            return parse_quote!({
-                let #base_temp = #base;
-                ad.#method(#base_temp, #exp_arg)
-            });
-        }
-
-        // Handle div_log (two Var arguments)
-        if func_name == "div_log" && expr.args.len() == 2 {
-            let lhs = self.transform_expr(&expr.args[0]);
-            let rhs = self.transform_expr(&expr.args[1]);
-            let lhs_temp = self.next_temp();
-            let rhs_temp = self.next_temp();
-
-            return parse_quote!({
-                let #lhs_temp = #lhs;
-                let #rhs_temp = #rhs;
-                ad.div_log(#lhs_temp, #rhs_temp)
-            });
-        }
-
-        // Single argument functions (sin, cos, ..., square)
-        if expr.args.len() != 1 {
-            return Expr::Call(expr.clone());
-        }
-
-        let arg = self.transform_expr(&expr.args[0]);
-        let temp = self.next_temp();
-        let method = syn::Ident::new(&func_name, proc_macro2::Span::call_site());
-
-        parse_quote!({
-            let #temp = #arg;
-            ad.#method(#temp)
-        })
     }
 
-    /// Transform method-call syntax: `x.sin()` → `ad.sin(x)`, `x.powi(3)` → `ad.powi(x, 3)`
-    fn transform_method_call(&mut self, expr: &ExprMethodCall) -> Expr {
-        let method_name = expr.method.to_string();
+    /// Transform a method call — mostly left as-is since `DiffNum` methods resolve via bound.
+    ///
+    /// With `stable_derivatives`, routes powi/powf/pow to log variants.
+    fn transform_method_call(&mut self, mc: &ExprMethodCall) -> Expr {
+        let method_name = mc.method.to_string();
 
         if !Self::is_math_function(&method_name) {
             // Not a math method — transform receiver and args, pass through
-            let mut new_expr = expr.clone();
-            new_expr.receiver = Box::new(self.transform_expr(&expr.receiver));
-            for arg in &mut new_expr.args {
+            let mut new_mc = mc.clone();
+            new_mc.receiver = Box::new(self.transform_expr(&mc.receiver));
+            for arg in &mut new_mc.args {
                 *arg = self.transform_expr(arg);
             }
-            return Expr::MethodCall(new_expr);
+            return Expr::MethodCall(new_mc);
         }
 
-        let receiver = self.transform_expr(&expr.receiver);
-        let recv_temp = self.next_temp();
-        let method = syn::Ident::new(&method_name, proc_macro2::Span::call_site());
+        let receiver = self.transform_expr(&mc.receiver);
 
-        // powi / powi_log: x.powi(3) → ad.powi(x, 3) — second arg is raw integer
-        if (method_name == "powi" || method_name == "powi_log") && expr.args.len() == 1 {
-            let exp_arg = &expr.args[0]; // raw i32, not transformed
-            let target_method = if method_name == "powi_log" || self.stable_derivatives {
-                "powi_log"
-            } else {
-                "powi"
-            };
-            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
-            return parse_quote!({
-                let #recv_temp = #receiver;
-                ad.#target(#recv_temp, #exp_arg)
-            });
-        }
+        match method_name.as_str() {
+            // Zero-arg methods: x.sin() — stay as method call with transformed receiver
+            "sin" | "cos" | "tan" | "exp" | "ln" | "sqrt" | "square"
+            | "sinh" | "cosh" | "tanh"
+            | "asin" | "acos" | "atan"
+            | "asinh" | "acosh" | "atanh" if mc.args.is_empty() => {
+                let method = &mc.method;
+                parse_quote!((#receiver).#method())
+            }
 
-        // powf / powf_log: x.powf(2.5) → ad.powf(x, 2.5) — second arg is raw f64
-        if (method_name == "powf" || method_name == "powf_log") && expr.args.len() == 1 {
-            let exp_arg = &expr.args[0]; // raw f64, not transformed
-            let target_method = if method_name == "powf_log" || self.stable_derivatives {
-                "powf_log"
-            } else {
-                "powf"
-            };
-            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
-            return parse_quote!({
-                let #recv_temp = #receiver;
-                ad.#target(#recv_temp, #exp_arg)
-            });
-        }
-
-        // Two-Var method calls: x.pow(y), x.pow_log(y), x.div_log(y)
-        if (method_name == "pow" || method_name == "pow_log" || method_name == "div_log")
-            && expr.args.len() == 1
-        {
-            let arg = self.transform_expr(&expr.args[0]);
-            let arg_temp = self.next_temp();
-            let target_method = match method_name.as_str() {
-                "pow" if self.stable_derivatives => "pow_log",
-                "div_log" => "div_log",
-                "pow_log" => "pow_log",
-                _ => &method_name,
-            };
-            let target = syn::Ident::new(target_method, proc_macro2::Span::call_site());
-            return parse_quote!({
-                let #recv_temp = #receiver;
-                let #arg_temp = #arg;
-                ad.#target(#recv_temp, #arg_temp)
-            });
-        }
-
-        // Zero-arg method calls: x.sin(), x.cos(), x.square(), etc.
-        if expr.args.is_empty() {
-            return parse_quote!({
-                let #recv_temp = #receiver;
-                ad.#method(#recv_temp)
-            });
-        }
-
-        // Fallback: not a recognized pattern, pass through
-        Expr::MethodCall(expr.clone())
-    }
-
-    /// Transform a literal to ad.constant(value)
-    fn transform_literal(&mut self, expr: &ExprLit) -> Expr {
-        match &expr.lit {
-            Lit::Float(f) => {
-                if let Ok(value) = f.base10_parse::<f64>() {
-                    parse_quote!(ad.constant(#value))
+            // x.powi(n) — second arg is raw i32, not transformed
+            "powi" | "powi_log" if mc.args.len() == 1 => {
+                let n = &mc.args[0]; // raw i32
+                if self.stable_derivatives || method_name == "powi_log" {
+                    parse_quote!((#receiver).powi_log(#n))
                 } else {
-                    Expr::Lit(expr.clone())
+                    parse_quote!((#receiver).powi(#n))
                 }
             }
-            Lit::Int(i) => {
-                if let Ok(value) = i.base10_parse::<i64>() {
-                    let float_value = value as f64;
-                    parse_quote!(ad.constant(#float_value))
+
+            // x.powf(e) — second arg is transformed (becomes T)
+            "powf" | "powf_log" if mc.args.len() == 1 => {
+                let exp = self.transform_expr(&mc.args[0]);
+                if self.stable_derivatives || method_name == "powf_log" {
+                    parse_quote!((#receiver).powf_log(#exp))
                 } else {
-                    Expr::Lit(expr.clone())
+                    parse_quote!((#receiver).powf(#exp))
                 }
             }
-            _ => Expr::Lit(expr.clone()),
-        }
-    }
 
-    /// Transform a path expression (variable reference)
-    fn transform_path(&mut self, expr: &ExprPath) -> Expr {
-        if let Some(ident) = expr.path.get_ident() {
-            if self.is_local_float(&ident.to_string()) {
-                // Wrap local float variables with ad.constant()
-                return parse_quote!(ad.constant(#ident));
+            // x.pow(y) or x.pow_log(y)
+            "pow" | "pow_log" if mc.args.len() == 1 => {
+                let exp = self.transform_expr(&mc.args[0]);
+                if self.stable_derivatives || method_name == "pow_log" {
+                    parse_quote!((#receiver).pow_log(#exp))
+                } else {
+                    parse_quote!((#receiver).powf(#exp))
+                }
+            }
+
+            // x.div_log(y)
+            "div_log" if mc.args.len() == 1 => {
+                let rhs = self.transform_expr(&mc.args[0]);
+                parse_quote!((#receiver).div_log(#rhs))
+            }
+
+            _ => {
+                let mut new_mc = mc.clone();
+                new_mc.receiver = Box::new(receiver);
+                for arg in &mut new_mc.args {
+                    *arg = self.transform_expr(arg);
+                }
+                Expr::MethodCall(new_mc)
             }
         }
-        Expr::Path(expr.clone())
     }
 }
 
-impl VisitMut for ExprTransformer {
+impl VisitMut for DiffNumTransformer {
     fn visit_stmt_mut(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Local(local) => {
-                // Track local variables that are assigned float literals
-                if let Some(init) = &local.init {
-                    if matches!(
-                        &*init.expr,
-                        Expr::Lit(ExprLit {
-                            lit: Lit::Float(_),
-                            ..
-                        }) | Expr::Lit(ExprLit {
-                            lit: Lit::Int(_),
-                            ..
-                        })
-                    ) {
-                        if let Pat::Ident(pat_ident) = &local.pat {
-                            self.local_float_vars.push(pat_ident.ident.to_string());
-                            // Don't transform this initialization - it's a regular float
-                            return;
-                        }
-                    }
-                }
-
-                // Transform the initialization expression
+                // Transform the initialization expression (float literals → T::from_f64)
                 if let Some(init) = &mut local.init {
                     let transformed = self.transform_expr(&init.expr);
                     init.expr = Box::new(transformed);

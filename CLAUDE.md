@@ -35,7 +35,7 @@ cargo bench                    # Run benchmarks
 cargo test
 ```
 
-Runs ~230 tests covering:
+Runs ~350 tests covering:
 - Graph construction and evaluation
 - Individual function derivatives (sin, cos, exp, ln, sqrt, etc.)
 - Mathematical identities (Pythagorean, exp/ln inverse, etc.)
@@ -91,7 +91,7 @@ Tests GPU batch evaluation: NodeOp conversion, dispatch, readback, and GPU-vs-CP
 
 Variables are entities with components:
 - `Variable`, `IsInput`, `IsConstant` — markers
-- `Value(f64)` — current numerical value
+- `Value<F>(F)` — current numerical value (generic over float type)
 - `UnaryOp`/`BinaryOp` + `UnaryInput`/`BinaryInputs` — operation definitions
 - `Dependencies` — bitmask tracking which inputs affect this variable
 
@@ -115,12 +115,13 @@ At compile time, `differentiate()` builds derivative graphs for all requested pa
 ```
 src/
 ├── lib.rs              # Re-exports, crate docs
-├── context.rs          # AutoDiff struct, differentiate(), compile(), main API
+├── context.rs          # AutoDiff<F> struct, differentiate(), compile(), main API
 ├── var.rs              # Var handle type
-├── compiled.rs         # CompiledGraph, NodeOp, flatten_graph
+├── compiled.rs         # CompiledGraph<F>, NodeOp<F>, flatten_graph
 ├── codegen.rs          # WGSL code generation: CompiledGraph::to_wgsl()
+├── diff_num.rs         # DiffNum trait + impls for f32, f64, Var
 ├── components/         # ECS components
-│   ├── variable.rs     # Variable markers (IsInput, IsConstant, Value, Dependencies)
+│   ├── variable.rs     # Variable markers (IsInput, IsConstant, Value<F>, Dependencies)
 │   └── operations.rs   # UnaryOp, BinaryOp, UnaryInput, BinaryInputs
 ├── graph/              # Graph utilities
 │   ├── topology.rs     # topological_order, topological_order_multi
@@ -132,7 +133,6 @@ src/
 │   ├── error.rs        # GpuError enum
 │   ├── types.rs        # GpuNodeOp, NodeOp→GPU conversion
 │   └── shader.wgsl     # WGSL interpreter compute kernel
-├── codegen.rs          # WGSL code generation (to_wgsl)
 ├── debug.rs            # Graph visualization (DOT format)
 ├── error.rs            # Error types
 ├── macros.rs           # expr! macro

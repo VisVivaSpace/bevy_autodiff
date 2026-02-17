@@ -18,8 +18,8 @@ struct InputPoint {
     y: f64,
 }
 
-/// System that evaluates all CompiledGraphs in parallel.
-fn eval_system(mut query: Query<(&InputPoint, &mut CompiledGraph)>) {
+/// System that evaluates all CompiledGraph<f64>s in parallel.
+fn eval_system(mut query: Query<(&InputPoint, &mut CompiledGraph<f64>)>) {
     query.par_iter_mut().for_each(|(point, mut cg)| {
         cg.eval(&[point.x, point.y]).unwrap();
     });
@@ -64,7 +64,7 @@ fn main() {
     println!("Evaluated {num_entities} entities in {elapsed:.2?}");
 
     // 5. Read back results (gradient() takes &mut self for backward pass)
-    let mut query = world.query::<(&InputPoint, &mut CompiledGraph)>();
+    let mut query = world.query::<(&InputPoint, &mut CompiledGraph<f64>)>();
     let mut count = 0;
     for (point, mut cg) in query.iter_mut(&mut world) {
         if count < 5 {

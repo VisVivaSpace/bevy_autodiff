@@ -12,7 +12,7 @@ use bevy_autodiff::AutoDiff;
 /// for a univariate function.
 fn compare_unary<BevyFn, AutodiffFn>(x_val: f64, bevy_fn: BevyFn, autodiff_fn: AutodiffFn)
 where
-    BevyFn: Fn(&mut AutoDiff, bevy_autodiff::Var) -> bevy_autodiff::Var,
+    BevyFn: Fn(&mut AutoDiff<f64>, bevy_autodiff::Var) -> bevy_autodiff::Var,
     AutodiffFn: Fn(F) -> F,
 {
     let mut ad = AutoDiff::new();

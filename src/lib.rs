@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 //! Automatic differentiation using Bevy ECS.
 //!
 //! `bevy_autodiff` implements automatic differentiation using symbolic graph
@@ -68,6 +70,7 @@ pub mod compiled;
 pub mod components;
 pub mod context;
 pub mod debug;
+pub mod diff_num;
 pub mod error;
 pub mod graph;
 #[macro_use]
@@ -81,6 +84,7 @@ mod tests;
 // Re-exports: essential public API
 pub use compiled::{CompiledGraph, NodeOp};
 pub use context::AutoDiff;
+pub use diff_num::{DiffNum, Float};
 pub use error::AutoDiffError;
 pub use var::Var;
 
@@ -92,6 +96,7 @@ pub use debug::{count_operations, to_dot, validate_graph};
 
 // Re-export proc-macro when feature is enabled
 #[cfg(feature = "proc-macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "proc-macros")))]
 pub use bevy_autodiff_macros::autodiff;
 
 // GPU batch evaluation via wgpu
@@ -107,8 +112,8 @@ fn _assert_send_sync() {
     fn assert_sync<T: Sync>() {}
 
     // Core data components
-    assert_send::<Value>();
-    assert_sync::<Value>();
+    assert_send::<Value<f64>>();
+    assert_sync::<Value<f64>>();
     assert_send::<Dependencies>();
     assert_sync::<Dependencies>();
 
@@ -139,8 +144,8 @@ fn _assert_send_sync() {
     assert_sync::<Var>();
 
     // Compiled graph (derives Component + Resource)
-    assert_send::<CompiledGraph>();
-    assert_sync::<CompiledGraph>();
+    assert_send::<CompiledGraph<f64>>();
+    assert_sync::<CompiledGraph<f64>>();
 }
 
 // GPU types are Send + Sync (required for Bevy Resource/Component)

@@ -84,7 +84,7 @@
 /// ```
 /// use bevy_autodiff::{AutoDiff, expr};
 ///
-/// let mut ad = AutoDiff::new();
+/// let mut ad = AutoDiff::<f64>::new();
 /// let x = ad.var(0.0).unwrap();
 ///
 /// let f = expr!(ad, sin(x) + cos(x));
