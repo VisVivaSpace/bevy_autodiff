@@ -68,6 +68,8 @@ pub mod reliability;
 // Re-exports: primary public API
 pub use compiled::PiecewiseCompiled;
 pub use error::FitError;
-pub use fit::{ChebyshevSegment, FitOptions, FitResult, fit_dense, uniform_breakpoints};
+pub use fit::{
+    ChebyshevSegment, FitOptions, FitResult, fit_dense, fit_sparse, uniform_breakpoints,
+};
 pub use piecewise::PiecewiseFit;
 pub use reliability::SegmentReliability;
