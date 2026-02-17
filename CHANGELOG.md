@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Float` trait now requires `Display` (both `f32` and `f64` already implement it)
 - `validate_graph` returns `Result<(), AutoDiffError>` instead of `Result<(), String>`
 - `value()`, `partial()`, `gradient()` use `assert!` instead of `debug_assert!` for eval-before-use checks (catches misuse in release builds)
+- GPU constant f64→f32 overflow check upgraded from `debug_assert!` to `assert!` (catches overflow in release builds)
 - `get_value` in graph traversal is now generic over `F: Float`
 - docs.rs: added `#![cfg_attr(docsrs, feature(doc_cfg))]` for proper feature-gated documentation
 

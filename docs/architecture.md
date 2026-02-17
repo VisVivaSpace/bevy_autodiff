@@ -15,7 +15,7 @@ Every node in the computation graph is a Bevy ECS entity with a subset of these 
 | `Variable` | Marker: this entity is part of the computation graph |
 | `IsInput` | Marker: this is an input variable (leaf, user-controlled) |
 | `IsConstant` | Marker: this is a fixed constant (leaf, zero derivative) |
-| `Value(f64)` | Current numerical value |
+| `Value<F>` | Current numerical value (generic over float type) |
 | `UnaryOpMarker(UnaryOp)` | Which unary operation this node represents |
 | `BinaryOpMarker(BinaryOp)` | Which binary operation this node represents (`Add`, `Sub`, `Mul`, `Div`, `Pow`, `DivLog`, `PowLog`) |
 | `UnaryInput(EntityHandle)` | The single input entity for a unary op |
@@ -29,9 +29,9 @@ The `Dependencies` bitmask supports up to 64 input variables. Each input variabl
 For repeated evaluation, the ECS graph is flattened into a `Vec<NodeOp>` -- a topologically sorted array where each node is one of:
 
 ```rust
-enum NodeOp {
+enum NodeOp<F> {
     Input(usize),                         // Read from inputs[index]
-    Constant(f64),                        // Fixed value
+    Constant(F),                          // Fixed value
     Unary { op: UnaryOp, src: usize },    // op(nodes[src])
     Binary { op: BinaryOp, lhs: usize, rhs: usize },  // op(nodes[lhs], nodes[rhs])
 }
@@ -74,21 +74,27 @@ For d²f/dxdy: call `differentiate(differentiate(f, x), y)`. Each call adds enti
 ```
 src/
   lib.rs              # Crate root, re-exports
-  context.rs          # AutoDiff struct: graph building, differentiate(), compile()
+  context.rs          # AutoDiff<F> struct: graph building, differentiate(), compile()
   var.rs              # Var handle type (wraps Entity)
-  compiled.rs         # CompiledGraph, NodeOp, flatten_graph, adjoint helpers
+  compiled.rs         # CompiledGraph<F>, NodeOp<F>, flatten_graph, adjoint helpers
   codegen.rs          # WGSL code generation from CompiledGraph
+  diff_num.rs         # DiffNum and Float traits
+  error.rs            # AutoDiffError enum
   components/
-    variable.rs       # Variable, IsInput, IsConstant, Value, Dependencies
+    variable.rs       # Variable, IsInput, IsConstant, Value<F>, Dependencies
     operations.rs     # UnaryOp, BinaryOp, UnaryOpMarker, BinaryOpMarker, inputs
   graph/
     topology.rs       # topological_order, topological_order_multi
     traverse.rs       # Graph traversal utilities
+  gpu/                # GPU batch evaluation (feature = "wgpu")
+    context.rs        # GpuContext: device, queue, pipeline
+    graph.rs          # GpuGraph, GpuResults, dispatch/readback
+    error.rs          # GpuError enum
+    types.rs          # GpuNodeOp, NodeOp→GPU conversion
+    shader.wgsl       # WGSL interpreter compute kernel
   debug.rs            # DOT format visualization, validation
   macros.rs           # expr! macro
-  optimize.rs         # CSE detection, simplification
   ops.rs              # Operator overloading (Add, Mul, etc. for Var)
-  util.rs             # Math utilities (factorial, binomial, horner)
 ```
 
 ## Compilation Pipeline
@@ -119,10 +125,10 @@ CompiledGraph (Vec<NodeOp>)
 During symbolic differentiation, the `smart_*` helpers prevent graph bloat:
 
 - `smart_add(a, b)`: if `a` is constant 0, return `b` (and vice versa)
-- `smart_mul(a, b)`: if either is constant 0, return 0; if either is constant 1, return the other
+- `smart_mul(a, b)`: if either is constant 0, return 0; if either is constant 1, return the other; if either is constant -1, return `neg` of the other
 - `smart_neg(a)`: if `a` is constant 0, return `a`
-- `smart_div(a, b)`: if numerator is constant 0, return 0; if denominator is constant 1, return numerator
-- `smart_sub(a, b)`: if `b` is constant 0, return `a`; if `a` is constant 0, negate `b`
+- `smart_div(a, b)`: if numerator is constant 0, return 0; if denominator is constant 1, return numerator; if `a` and `b` are the same entity, return 1
+- `smart_sub(a, b)`: if `b` is constant 0, return `a`; if `a` is constant 0, negate `b`; if `a` and `b` are the same entity, return 0
 
 These deliberately deviate from IEEE 754 (where `0 * NaN = NaN`) because in symbolic differentiation, a zero derivative term is structurally zero regardless of the other factor's value. This prevents NaN poisoning the derivative graph when subexpressions hit domain boundaries.
 

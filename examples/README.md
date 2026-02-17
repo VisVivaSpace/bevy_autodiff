@@ -12,7 +12,7 @@ cargo run --example <name>
 
 ### basic
 
-Introductory example: builds a polynomial `f(x) = x² + 3x + 1`, evaluates it, and computes first through third derivatives using symbolic differentiation.
+Introductory example: builds a polynomial `f(x) = x² + 3x + 1`, evaluates it, and computes first and second derivatives using symbolic differentiation.
 
 ```bash
 cargo run --example basic

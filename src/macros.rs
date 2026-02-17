@@ -38,8 +38,11 @@
 //!
 //! # Limitations
 //!
-//! Due to Rust macro limitations, some complex expressions may require
-//! explicit parentheses for correct parsing.
+//! - **f64 only**: Literals are cast to `f64` via `ad.constant(lit as f64)`,
+//!   so `expr!` only works with `AutoDiff<f64>`. For `AutoDiff<f32>` or custom
+//!   float types, use the builder API directly.
+//! - Due to Rust macro limitations, some complex expressions may require
+//!   explicit parentheses for correct parsing.
 
 /// Transforms a natural Rust expression into AutoDiff method calls.
 ///

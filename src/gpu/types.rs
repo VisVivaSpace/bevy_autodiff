@@ -87,7 +87,7 @@ pub(crate) fn convert_nodes<F: Float>(nodes: &[NodeOp<F>]) -> Vec<GpuNodeOp> {
             NodeOp::Constant(v) => {
                 let f64_val = v.to_f64();
                 let f32_val = f64_val as f32;
-                debug_assert!(
+                assert!(
                     f32_val.is_finite() || !f64_val.is_finite(),
                     "GPU constant {f64_val} overflows f32 range"
                 );

@@ -154,7 +154,7 @@ Generates a standalone WGSL function from a compiled graph. All 23 operations ma
 
 ## Key Types
 
-- `AutoDiff<F>` -- the computation graph context, generic over float type (`f32`, `f64`, `Complex<f64>`, etc.). Wraps a Bevy ECS `World`.
+- `AutoDiff<F>` -- the computation graph context, generic over `F: Float` (`f32`, `f64`, or user-defined types implementing the `Float` trait). Wraps a Bevy ECS `World`.
 - `Var` -- lightweight `Copy` handle to a graph entity (float-agnostic)
 - `DiffNum` -- trait for dual-use functions: implemented for `f32`, `f64` (direct evaluation) and `Var` (graph construction)
 - `CompiledGraph<F>` -- flattened graph for fast evaluation, gradient computation, and WGSL code generation. Derives `Clone`, `Component`, `Resource` for Bevy integration.

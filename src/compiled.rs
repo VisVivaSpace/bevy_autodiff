@@ -465,15 +465,6 @@ pub(crate) fn apply_unary_value<F: DiffNum>(op: UnaryOp, x: F) -> F {
     }
 }
 
-/// Compute x^y via `DiffNum::powf`.
-///
-/// Handles negative bases with integer exponents correctly
-/// (unlike `exp(y * ln(x))` which produces NaN for x < 0).
-#[inline]
-fn pow_generic<F: DiffNum>(x: F, y: F) -> F {
-    x.powf(y)
-}
-
 /// Apply a binary operation to two values.
 pub(crate) fn apply_binary_value<F: DiffNum>(op: BinaryOp, x: F, y: F) -> F {
     match op {
@@ -481,7 +472,9 @@ pub(crate) fn apply_binary_value<F: DiffNum>(op: BinaryOp, x: F, y: F) -> F {
         BinaryOp::Sub => x - y,
         BinaryOp::Mul => x * y,
         BinaryOp::Div | BinaryOp::DivLog => x / y,
-        BinaryOp::Pow | BinaryOp::PowLog => pow_generic(x, y),
+        // powf handles negative bases with integer exponents correctly
+        // (unlike the old exp(y*ln(x)) form which produced NaN for x < 0)
+        BinaryOp::Pow | BinaryOp::PowLog => x.powf(y),
     }
 }
 
@@ -532,7 +525,7 @@ pub(crate) fn binary_adjoint<F: DiffNum>(op: BinaryOp, lhs_val: F, rhs_val: F, z
         BinaryOp::Div => (one / rhs_val, -lhs_val / (rhs_val * rhs_val)),
         BinaryOp::Pow => {
             // dz/d(lhs) = rhs * lhs^(rhs-1) = rhs * exp((rhs-1) * ln(lhs))
-            let dlhs = rhs_val * pow_generic(lhs_val, rhs_val - one);
+            let dlhs = rhs_val * lhs_val.powf(rhs_val - one);
             // dz/d(rhs) = z * ln(lhs)
             let drhs = z_val * lhs_val.ln();
             (dlhs, drhs)

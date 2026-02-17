@@ -193,7 +193,7 @@ Complements the interpreter-based GPU dispatch: the interpreter is a self-contai
 `CompiledGraph` derives `Clone`, `Component`, and `Resource`, so compiled graphs can live directly in your Bevy app's ECS. Use `par_iter_mut()` to evaluate many graphs in parallel via Bevy's `ComputeTaskPool`.
 
 ```rust
-use bevy::prelude::*;
+use bevy_ecs::prelude::*;
 use bevy_autodiff::{AutoDiff, CompiledGraph};
 
 #[derive(Component)]
@@ -207,7 +207,7 @@ let f = ad.add(ad.square(x), ad.mul(x, y));
 let template = ad.compile_primal(f, &[x, y]).unwrap();
 
 // Parallel evaluation system
-fn eval_system(mut query: Query<(&InputPoint, &mut CompiledGraph)>) {
+fn eval_system(mut query: Query<(&InputPoint, &mut CompiledGraph<f64>)>) {
     query.par_iter_mut().for_each(|(point, mut cg)| {
         cg.eval(&[point.x, point.y]).unwrap();
     });
@@ -278,7 +278,7 @@ For more detail, see [Architecture](docs/architecture.md).
 
 This project explores what ECS can do for automatic differentiation. ECS is used for graph construction and symbolic differentiation only — all hot paths (`eval()`, `gradient()`, GPU `eval_batch()`) operate on flat arrays with no entity lookups. ECS provides open extensibility (new metadata = new component), cache-friendly SoA layout, and natural Bevy integration. The main cost is `bevy_ecs` compile time, which is confined to the cold path.
 
-See [Architecture — What Does ECS Actually Bring?](docs/architecture.md#what-does-ecs-actually-bring) for the full analysis.
+See [Architecture](docs/architecture.md) for the full analysis.
 
 ## Builder API
 
@@ -343,8 +343,8 @@ The test suite validates correctness through:
 
 | Test type | What it validates | Count |
 |-----------|-------------------|-------|
-| Unit tests | Graph construction, all 23 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen, f32 graphs, DiffNum trait, Bevy trait bounds | 352 |
-| Proc-macro tests | `#[autodiff]`, `expr!` macro, `stable_derivatives` attribute, dual-use f64/f32 evaluation | 79 |
+| Unit tests | Graph construction, all 23 operations, derivative properties, constant folding, CompiledGraph eval, reverse-mode adjoint formulas, reverse-mode backward pass, WGSL codegen, f32 graphs, DiffNum trait, Bevy trait bounds | 360 |
+| Proc-macro tests | `#[autodiff]`, `expr!` macro, `stable_derivatives` attribute, dual-use f64/f32 evaluation | 86 |
 | GPU unit tests | NodeOp conversion, GPU dispatch, buffer readback, error paths, Bevy trait bounds | 16 |
 | Oracle (autodiff crate) | First derivatives against independent forward-mode AD | 22 |
 | Oracle (GPU vs CPU) | GPU f32 results against CPU f64 for all ops, compositions, partials, batch sizes | 27 |
