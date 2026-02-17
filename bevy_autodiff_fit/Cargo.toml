@@ -1,0 +1,15 @@
+[package]
+name = "bevy_autodiff_fit"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+authors = ["Nathan Strange <info@visviva.space>"]
+description = "Piecewise Chebyshev polynomial fitting for bevy_autodiff"
+license = "MIT"
+repository = "https://github.com/VisVivaSpace/bevy_autodiff"
+keywords = ["autodiff", "chebyshev", "fitting", "interpolation", "derivatives"]
+categories = ["science", "mathematics"]
+
+[dependencies]
+bevy_autodiff = { path = ".." }
+thiserror = "2"
