@@ -1,5 +1,6 @@
 /target
 /bevy_autodiff-macros/target
+/bevy_autodiff_fit/target
 /notes
 /tasks
 /.claude
