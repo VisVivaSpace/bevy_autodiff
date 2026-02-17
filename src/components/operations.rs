@@ -65,6 +65,12 @@ impl UnaryOp {
     }
 }
 
+impl std::fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// Binary operation types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -97,6 +103,12 @@ pub enum BinaryOp {
     ///
     /// **Requirement:** both operands must be nonzero. Produces NaN otherwise.
     DivLog,
+}
+
+impl std::fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 impl BinaryOp {

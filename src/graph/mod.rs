@@ -4,11 +4,9 @@
 //! - Topological sorting of variables for forward propagation
 //! - Graph traversal helpers
 
-pub mod topology;
-pub mod traverse;
+pub(crate) mod topology;
+pub(crate) mod traverse;
 
-pub use topology::{find_all_inputs, topological_order, topological_order_multi};
-pub use traverse::{
-    collect_all_entities, get_binary_inputs, get_inputs, get_operation_name, get_unary_input,
-    get_value, is_leaf, max_depth, visit_topological,
-};
+pub(crate) use topology::topological_order;
+#[allow(unused_imports)]
+pub(crate) use topology::topological_order_multi;

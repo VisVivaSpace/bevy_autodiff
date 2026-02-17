@@ -14,8 +14,7 @@
 
 use std::cell::RefCell;
 
-use bevy_autodiff::AutoDiff;
-use bevy_autodiff::compiled::CompiledGraph;
+use bevy_autodiff::{AutoDiff, CompiledGraph};
 use rkf78::{OdeSystem, Rkf78, Tolerances};
 
 /// Earth gravitational parameter (km³/s²)

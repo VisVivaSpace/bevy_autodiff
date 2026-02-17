@@ -65,18 +65,18 @@
 //! assert_eq!(grad, &[2.0, 4.0]); // [2x, 2y]
 //! ```
 
-pub mod codegen;
-pub mod compiled;
-pub mod components;
-pub mod context;
-pub mod debug;
-pub mod diff_num;
-pub mod error;
-pub mod graph;
+pub(crate) mod codegen;
+pub(crate) mod compiled;
+pub(crate) mod components;
+pub(crate) mod context;
+pub(crate) mod debug;
+pub(crate) mod diff_num;
+pub(crate) mod error;
+pub(crate) mod graph;
 #[macro_use]
 pub mod macros;
 pub mod ops;
-pub mod var;
+pub(crate) mod var;
 
 #[cfg(test)]
 mod tests;

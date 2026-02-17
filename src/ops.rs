@@ -41,6 +41,13 @@
 //!
 //! We use approach 1 for simplicity, with safety ensured by the `with_context`
 //! function that properly sets and clears the thread-local context.
+//!
+//! # f64-Only Constraint
+//!
+//! Operator overloading via `with_context` is **f64-only**. The thread-local
+//! stores `&mut AutoDiff<f64>` because [`Var`] is unparameterized — it cannot
+//! carry a float type parameter. For f32 or custom float types, use
+//! `ad.method()` calls or the [`expr!`] macro instead.
 
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};

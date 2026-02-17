@@ -21,12 +21,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New DiffNum test suite: 21 tests covering generic function evaluation and differentiation
 - Proc-macro tests for direct f64/f32 evaluation of `#[autodiff]` functions
 - Proc-macro edge case tests: `i32` parameters, f64/f32 consistency, stable_derivatives div_log
+- `Display` impls for `UnaryOp` and `BinaryOp` (delegates to `name()`)
+- `PartialEq` derive on `AutoDiffError` (enables `assert_eq!` on errors)
+- `Ord` and `PartialOrd` impls on `Var` (entity ordering, BTreeMap usage)
+- `ValidationError` variant on `AutoDiffError` for graph validation
+- `CompiledGraph::nodes()` is now public (inspect compiled graph for debugging)
+- GPU tests for `DivLog` and `PowLog` op code mapping
+- Additional constant folding in differentiation: `a - a → 0`, `a / a → 1`, `-1 * x → neg(x)`
 
 ### Changed
 
 - **BREAKING:** `#[autodiff]` now generates `fn f<T: DiffNum>(x: T) -> T` instead of injecting `ad: &mut AutoDiff`. Call via `with_context(&mut ad, || f(x))` for graph construction, or `f(2.0_f64)` for direct evaluation.
 - **BREAKING:** `AutoDiff`, `CompiledGraph`, `Value`, `NodeOp` are now generic over float type (existing code using `AutoDiff::new()` with f64 literals continues to work via type inference)
+- **BREAKING:** Internal modules (`codegen`, `compiled`, `components`, `context`, `debug`, `diff_num`, `error`, `graph`, `var`) are now `pub(crate)` — use re-exports at crate root instead (e.g., `bevy_autodiff::CompiledGraph`, not `bevy_autodiff::compiled::CompiledGraph`)
+- `Float` trait now requires `Display` (both `f32` and `f64` already implement it)
+- `validate_graph` returns `Result<(), AutoDiffError>` instead of `Result<(), String>`
+- `value()`, `partial()`, `gradient()` use `assert!` instead of `debug_assert!` for eval-before-use checks (catches misuse in release builds)
+- `get_value` in graph traversal is now generic over `F: Float`
 - docs.rs: added `#![cfg_attr(docsrs, feature(doc_cfg))]` for proper feature-gated documentation
+
+### Fixed
+
+- `pow` and `pow_log` primal evaluation now uses `powf` instead of `exp(y * ln(x))` — correctly handles negative bases (e.g., `(-2)^2 = 4` instead of `NaN`)
+- `compile()` returns `Result` with `MultiIndexLengthMismatch` instead of panicking on multi-index length mismatch
 
 ### Removed
 

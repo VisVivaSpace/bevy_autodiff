@@ -5,9 +5,10 @@
 //! - Graph validation
 
 use crate::diff_num::Float;
+use crate::error::AutoDiffError;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use std::fmt::{Display, Write};
+use std::fmt::Write;
 
 use crate::components::{
     BinaryInputs, BinaryOpMarker, IsConstant, IsInput, UnaryInput, UnaryOpMarker, Value,
@@ -18,7 +19,7 @@ use crate::var::Var;
 /// Generates a DOT graph representation of the computation graph.
 ///
 /// The output can be visualized using Graphviz or similar tools.
-pub fn to_dot<F: Float + Display>(world: &World, output: Var) -> String {
+pub fn to_dot<F: Float>(world: &World, output: Var) -> String {
     let mut dot = String::from("digraph {\n    rankdir=BT;\n");
 
     // Get all entities in topological order
@@ -78,7 +79,7 @@ pub fn to_dot<F: Float + Display>(world: &World, output: Var) -> String {
 }
 
 /// Gets a human-readable label for a node.
-fn get_node_label<F: Float + Display>(world: &World, entity: Entity) -> String {
+fn get_node_label<F: Float>(world: &World, entity: Entity) -> String {
     let entity_ref = world.entity(entity);
 
     // Input or constant
@@ -118,10 +119,12 @@ fn get_node_label<F: Float + Display>(world: &World, entity: Entity) -> String {
 /// - No cycles in the graph
 /// - All referenced entities exist
 ///
-/// Returns Ok(()) if valid, or Err with a description of the issue.
-pub fn validate_graph<F: Float>(world: &World, output: Var) -> Result<(), String> {
-    let entities = topological_order(world, output.entity())
-        .map_err(|_| "cycle detected in computation graph".to_string())?;
+/// Returns Ok(()) if valid, or Err with an [`AutoDiffError::ValidationError`].
+pub fn validate_graph<F: Float>(world: &World, output: Var) -> Result<(), AutoDiffError> {
+    let entities =
+        topological_order(world, output.entity()).map_err(|_| AutoDiffError::ValidationError {
+            reason: "cycle detected in computation graph".into(),
+        })?;
 
     for &entity in &entities {
         let entity_ref = world.entity(entity);
@@ -135,14 +138,18 @@ pub fn validate_graph<F: Float>(world: &World, output: Var) -> Result<(), String
         if entity_ref.contains::<UnaryOpMarker>() {
             if let Some(input) = entity_ref.get::<UnaryInput>() {
                 if world.get_entity(input.get().entity()).is_err() {
-                    return Err(format!(
-                        "Unary operation {:?} references non-existent entity {:?}",
-                        entity,
-                        input.get().entity()
-                    ));
+                    return Err(AutoDiffError::ValidationError {
+                        reason: format!(
+                            "Unary operation {:?} references non-existent entity {:?}",
+                            entity,
+                            input.get().entity()
+                        ),
+                    });
                 }
             } else {
-                return Err(format!("Unary operation {:?} missing UnaryInput", entity));
+                return Err(AutoDiffError::ValidationError {
+                    reason: format!("Unary operation {:?} missing UnaryInput", entity),
+                });
             }
         }
 
@@ -150,30 +157,35 @@ pub fn validate_graph<F: Float>(world: &World, output: Var) -> Result<(), String
         if entity_ref.contains::<BinaryOpMarker>() {
             if let Some(inputs) = entity_ref.get::<BinaryInputs>() {
                 if world.get_entity(inputs.left.entity()).is_err() {
-                    return Err(format!(
-                        "Binary operation {:?} references non-existent left entity {:?}",
-                        entity,
-                        inputs.left.entity()
-                    ));
+                    return Err(AutoDiffError::ValidationError {
+                        reason: format!(
+                            "Binary operation {:?} references non-existent left entity {:?}",
+                            entity,
+                            inputs.left.entity()
+                        ),
+                    });
                 }
                 if world.get_entity(inputs.right.entity()).is_err() {
-                    return Err(format!(
-                        "Binary operation {:?} references non-existent right entity {:?}",
-                        entity,
-                        inputs.right.entity()
-                    ));
+                    return Err(AutoDiffError::ValidationError {
+                        reason: format!(
+                            "Binary operation {:?} references non-existent right entity {:?}",
+                            entity,
+                            inputs.right.entity()
+                        ),
+                    });
                 }
             } else {
-                return Err(format!(
-                    "Binary operation {:?} missing BinaryInputs",
-                    entity
-                ));
+                return Err(AutoDiffError::ValidationError {
+                    reason: format!("Binary operation {:?} missing BinaryInputs", entity),
+                });
             }
         }
 
         // Check all nodes have Value component
         if entity_ref.get::<Value<F>>().is_none() {
-            return Err(format!("Node {:?} missing Value component", entity));
+            return Err(AutoDiffError::ValidationError {
+                reason: format!("Node {:?} missing Value component", entity),
+            });
         }
     }
 

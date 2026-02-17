@@ -84,16 +84,24 @@ pub(crate) fn convert_nodes<F: Float>(nodes: &[NodeOp<F>]) -> Vec<GpuNodeOp> {
                 _pad1: 0,
                 _pad2: 0,
             },
-            NodeOp::Constant(v) => GpuNodeOp {
-                op_type: OP_TYPE_CONSTANT,
-                op_code: 0,
-                arg1: 0,
-                arg2: 0,
-                const_val: v.to_f64() as f32,
-                _pad0: 0,
-                _pad1: 0,
-                _pad2: 0,
-            },
+            NodeOp::Constant(v) => {
+                let f64_val = v.to_f64();
+                let f32_val = f64_val as f32;
+                debug_assert!(
+                    f32_val.is_finite() || !f64_val.is_finite(),
+                    "GPU constant {f64_val} overflows f32 range"
+                );
+                GpuNodeOp {
+                    op_type: OP_TYPE_CONSTANT,
+                    op_code: 0,
+                    arg1: 0,
+                    arg2: 0,
+                    const_val: f32_val,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
+                }
+            }
             NodeOp::Unary { op, src } => GpuNodeOp {
                 op_type: OP_TYPE_UNARY,
                 op_code: unary_op_code(op),
@@ -220,6 +228,22 @@ mod tests {
         assert_eq!(gpu[3].const_val, 1.0);
         assert_eq!(gpu[4].op_type, OP_TYPE_BINARY);
         assert_eq!(gpu[4].op_code, binary_op_code(BinaryOp::Add));
+    }
+
+    #[test]
+    fn div_log_maps_to_div_op_code() {
+        assert_eq!(
+            binary_op_code(BinaryOp::DivLog),
+            binary_op_code(BinaryOp::Div)
+        );
+    }
+
+    #[test]
+    fn pow_log_maps_to_pow_op_code() {
+        assert_eq!(
+            binary_op_code(BinaryOp::PowLog),
+            binary_op_code(BinaryOp::Pow)
+        );
     }
 
     #[test]

@@ -4,6 +4,9 @@
 //! computation graph. All functions take explicit `&World` parameters
 //! following the EntityHandle pattern.
 
+// Internal utility functions with test coverage — not all are used outside tests.
+#![allow(dead_code)]
+
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
 
@@ -45,8 +48,8 @@ pub fn is_leaf(world: &World, entity: Entity) -> bool {
 }
 
 /// Gets the numerical value of an entity.
-pub fn get_value(world: &World, entity: Entity) -> Option<f64> {
-    world.get::<Value<f64>>(entity).map(|v| v.get())
+pub fn get_value<F: crate::diff_num::Float>(world: &World, entity: Entity) -> Option<F> {
+    world.get::<Value<F>>(entity).map(|v| v.get())
 }
 
 /// Gets the operation name for a node, if it's an operation.

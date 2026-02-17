@@ -191,7 +191,7 @@ impl<F: Float> CompiledGraph<F> {
     /// Debug-asserts that `eval()` has been called at least once.
     #[inline]
     pub fn value(&self) -> F {
-        debug_assert!(
+        assert!(
             self.has_evaluated,
             "CompiledGraph::value() called before eval()"
         );
@@ -207,7 +207,7 @@ impl<F: Float> CompiledGraph<F> {
     /// Returns [`PartialNotCompiled`](crate::error::AutoDiffError::PartialNotCompiled) if the requested partial
     /// was not included when the graph was compiled.
     pub fn partial(&self, multi_index: &[usize]) -> Result<F, crate::error::AutoDiffError> {
-        debug_assert!(
+        assert!(
             self.has_evaluated,
             "CompiledGraph::partial() called before eval()"
         );
@@ -237,7 +237,7 @@ impl<F: Float> CompiledGraph<F> {
     }
 
     /// Returns a reference to the node array.
-    pub(crate) fn nodes(&self) -> &[NodeOp<F>] {
+    pub fn nodes(&self) -> &[NodeOp<F>] {
         &self.nodes
     }
 
@@ -274,7 +274,7 @@ impl<F: Float> CompiledGraph<F> {
     ///
     /// Debug-asserts that `eval()` has been called at least once.
     pub fn gradient(&mut self) -> &[F] {
-        debug_assert!(
+        assert!(
             self.has_evaluated,
             "CompiledGraph::gradient() called before eval()"
         );
@@ -465,12 +465,13 @@ pub(crate) fn apply_unary_value<F: DiffNum>(op: UnaryOp, x: F) -> F {
     }
 }
 
-/// Compute x^y using the identity x^y = exp(y * ln(x)).
+/// Compute x^y via `DiffNum::powf`.
 ///
-/// Equivalent to `x.powf(y)` when x > 0.
+/// Handles negative bases with integer exponents correctly
+/// (unlike `exp(y * ln(x))` which produces NaN for x < 0).
 #[inline]
 fn pow_generic<F: DiffNum>(x: F, y: F) -> F {
-    (y * x.ln()).exp()
+    x.powf(y)
 }
 
 /// Apply a binary operation to two values.

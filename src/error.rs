@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// Errors that can occur during autodiff operations.
-#[derive(Clone, Debug, Error)]
+#[derive(Clone, Debug, PartialEq, Error)]
 #[non_exhaustive]
 pub enum AutoDiffError {
     /// Tried to create more than 64 input variables.
@@ -40,4 +40,8 @@ pub enum AutoDiffError {
     /// Multi-index length does not match the number of inputs.
     #[error("multi-index length {got} does not match input count {expected}")]
     MultiIndexLengthMismatch { expected: usize, got: usize },
+
+    /// Graph validation failed.
+    #[error("graph validation failed: {reason}")]
+    ValidationError { reason: String },
 }

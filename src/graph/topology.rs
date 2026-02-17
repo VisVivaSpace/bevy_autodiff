@@ -102,6 +102,7 @@ pub fn topological_order_multi(
 /// # Errors
 ///
 /// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
+#[allow(dead_code)]
 pub fn find_all_inputs(world: &World, output: Entity) -> Result<Vec<Entity>, AutoDiffError> {
     let order = topological_order(world, output)?;
     Ok(order
@@ -111,6 +112,7 @@ pub fn find_all_inputs(world: &World, output: Entity) -> Result<Vec<Entity>, Aut
 }
 
 /// Finds the entity by handle, returning None if the entity doesn't exist.
+#[allow(dead_code)]
 pub fn resolve_handle(world: &World, handle: EntityHandle) -> Option<Entity> {
     let entity = handle.entity();
     if world.get_entity(entity).is_ok() {

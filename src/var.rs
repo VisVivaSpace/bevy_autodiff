@@ -62,6 +62,20 @@ impl PartialEq for Var {
 
 impl Eq for Var {}
 
+impl PartialOrd for Var {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Var {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.entity.cmp(&other.entity)
+    }
+}
+
 impl Hash for Var {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {

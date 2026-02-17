@@ -112,7 +112,7 @@ pub trait DiffNum:
 /// types (e.g., interval arithmetic, extended precision).
 ///
 /// [`Var`](crate::Var) does **not** implement `Float` — it's a graph handle, not a number.
-pub trait Float: DiffNum + PartialEq + Debug + Send + Sync + 'static {
+pub trait Float: DiffNum + PartialEq + std::fmt::Display + Debug + Send + Sync + 'static {
     /// Convert to f64 (for WGSL code generation and GPU constant conversion).
     fn to_f64(self) -> f64;
 
@@ -310,6 +310,9 @@ impl DiffNum for f32 {
 
 // =============================================================================
 // Var implementation — delegates to ops.rs free functions
+//
+// Var is always f64-only. All operations require an active `with_context` scope.
+// Using Var DiffNum methods outside `with_context` will panic.
 // =============================================================================
 
 impl DiffNum for Var {
