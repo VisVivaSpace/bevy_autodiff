@@ -248,12 +248,16 @@ mod tests {
         let y_data: Vec<f64> = x_data.iter().map(|&x| x * x * x).collect();
         let result = fit_dense(&x_data, &y_data, &[0.0, 1.0], &FitOptions { degree: 10 }).unwrap();
 
+        // Dense fit of x³ degree 10 on [0,1]: h=1/50=0.02
+        // f'' err dominated by twice-amplified resampling noise
+        // Observed: ~1e-2 at interior points
         for &x in &[0.25, 0.5, 0.75] {
             let d2 = result.fit.eval_derivative(x, 2);
             let exact = 6.0 * x;
             assert!(
-                (d2 - exact).abs() < 0.1,
-                "f''({x}): got {d2}, expected {exact}"
+                (d2 - exact).abs() < 5e-2,
+                "f''({x}): got {d2}, expected {exact}, err = {:.2e}",
+                (d2 - exact).abs()
             );
         }
     }

@@ -279,11 +279,14 @@ mod tests {
         let dfdx = ad.differentiate(f, x).unwrap();
         let d2fdx2 = ad.differentiate(dfdx, x).unwrap();
 
+        // Dense fit of sin(x) degree 20: f'' error dominated by
+        // resampling noise amplified twice. Observed: ~2.8e-3 at x=1.0
         let second_deriv = ad.eval(d2fdx2).unwrap();
         let expected = -test_x.sin();
         assert!(
-            (second_deriv - expected).abs() < 0.1,
-            "f''({test_x}) = {second_deriv}, expected {expected}"
+            (second_deriv - expected).abs() < 1e-2,
+            "f''({test_x}) = {second_deriv}, expected {expected}, err = {:.2e}",
+            (second_deriv - expected).abs()
         );
     }
 
@@ -304,11 +307,13 @@ mod tests {
         let f = seg.build_graph(&mut ad, x);
         let g = ad.exp(f); // g = exp(x²)
 
+        // Observed: val err ~3e-4, deriv err ~2e-3
         let val = ad.eval(g).unwrap();
         let expected = (test_x * test_x).exp();
         assert!(
             (val - expected).abs() < 1e-3,
-            "g({test_x}) = {val}, expected {expected}"
+            "g({test_x}) = {val}, expected {expected}, err = {:.2e}",
+            (val - expected).abs()
         );
 
         let dgdx = ad.differentiate(g, x).unwrap();
@@ -316,8 +321,9 @@ mod tests {
         // g'(x) = exp(x²) * 2x
         let expected_deriv = expected * 2.0 * test_x;
         assert!(
-            (deriv - expected_deriv).abs() < 1e-2,
-            "g'({test_x}) = {deriv}, expected {expected_deriv}"
+            (deriv - expected_deriv).abs() < 5e-3,
+            "g'({test_x}) = {deriv}, expected {expected_deriv}, err = {:.2e}",
+            (deriv - expected_deriv).abs()
         );
     }
 

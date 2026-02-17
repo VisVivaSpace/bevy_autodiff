@@ -152,17 +152,25 @@ mod tests {
             let d1 = compiled.partial(&[1]).unwrap();
             let d2 = compiled.partial(&[2]).unwrap();
 
+            // Dense fit of x²: linear interpolation error O(h²) where h=2/50=0.04
+            // Observed: f err < 4e-4, f' err < 1e-3, f'' err < 1.3e-2 (interior)
             assert!(
                 (val - x * x).abs() < 1e-3,
-                "f({x}): got {val}, expected {}",
-                x * x
+                "f({x}): got {val}, expected {}, err = {:.2e}",
+                x * x,
+                (val - x * x).abs()
             );
             assert!(
-                (d1 - 2.0 * x).abs() < 1e-2,
-                "f'({x}): got {d1}, expected {}",
-                2.0 * x
+                (d1 - 2.0 * x).abs() < 5e-3,
+                "f'({x}): got {d1}, expected {}, err = {:.2e}",
+                2.0 * x,
+                (d1 - 2.0 * x).abs()
             );
-            assert!((d2 - 2.0).abs() < 0.5, "f''({x}): got {d2}, expected 2.0");
+            assert!(
+                (d2 - 2.0).abs() < 5e-2,
+                "f''({x}): got {d2}, expected 2.0, err = {:.2e}",
+                (d2 - 2.0).abs()
+            );
         }
     }
 

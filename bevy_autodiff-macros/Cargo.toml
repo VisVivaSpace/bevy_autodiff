@@ -2,7 +2,7 @@
 name = "bevy_autodiff-macros"
 version = "0.2.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 authors = ["Nathan Strange <info@visviva.space>"]
 description = "Procedural macros for bevy_autodiff automatic differentiation"
 license = "MIT"
