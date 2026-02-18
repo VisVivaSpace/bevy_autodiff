@@ -8,5 +8,3 @@ pub(crate) mod topology;
 pub(crate) mod traverse;
 
 pub(crate) use topology::topological_order;
-#[allow(unused_imports)]
-pub(crate) use topology::topological_order_multi;

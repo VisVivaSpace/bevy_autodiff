@@ -41,14 +41,20 @@
 //!
 //! For composing fits with other AD operations:
 //!
-//! ```ignore
+//! ```
 //! use bevy_autodiff::AutoDiff;
+//! use bevy_autodiff_fit::{fit_dense, FitOptions};
+//!
+//! // Fit sin(x) on [0, 1]
+//! let x_data: Vec<f64> = (0..=50).map(|i| i as f64 / 50.0).collect();
+//! let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin()).collect();
+//! let result = fit_dense(&x_data, &y_data, &[0.0, 1.0], &FitOptions { degree: 10 }).unwrap();
 //!
 //! let mut ad = AutoDiff::new();
 //! let x = ad.var(0.5).unwrap();
 //!
 //! // Build Clenshaw graph for segment 0
-//! let f = fit_result.fit.build_segment_graph(&mut ad, x, 0).unwrap();
+//! let f = result.fit.build_segment_graph(&mut ad, x, 0).unwrap();
 //!
 //! // Compose with other operations
 //! let g = ad.exp(f);  // g = exp(fit(x))

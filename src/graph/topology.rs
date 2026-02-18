@@ -2,7 +2,6 @@
 
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use bevy_entity_ptr::EntityHandle;
 use std::collections::HashSet;
 
 use crate::components::{BinaryInputs, IsConstant, IsInput, UnaryInput};
@@ -97,34 +96,11 @@ pub fn topological_order_multi(
     Ok(result)
 }
 
-/// Gets all input variable entities reachable from an output (not constants).
-///
-/// # Errors
-///
-/// Returns [`AutoDiffError::CycleDetected`] if the graph contains a cycle.
-#[allow(dead_code)]
-pub fn find_all_inputs(world: &World, output: Entity) -> Result<Vec<Entity>, AutoDiffError> {
-    let order = topological_order(world, output)?;
-    Ok(order
-        .into_iter()
-        .filter(|&e| world.entity(e).contains::<IsInput>())
-        .collect())
-}
-
-/// Finds the entity by handle, returning None if the entity doesn't exist.
-#[allow(dead_code)]
-pub fn resolve_handle(world: &World, handle: EntityHandle) -> Option<Entity> {
-    let entity = handle.entity();
-    if world.get_entity(entity).is_ok() {
-        Some(entity)
-    } else {
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_entity_ptr::EntityHandle;
     use crate::BinaryOp;
     use crate::UnaryOp;
     use crate::components::{BinaryOpMarker, UnaryOpMarker};
@@ -267,24 +243,6 @@ mod tests {
         assert!(is_leaf(&world, x));
         assert!(is_leaf(&world, c));
         assert!(!is_leaf(&world, sum));
-    }
-
-    #[test]
-    fn test_find_all_inputs() {
-        let mut world = World::new();
-        let x = create_input(&mut world, 1.0);
-        let y = create_input(&mut world, 2.0);
-        let c = create_constant(&mut world, 3.0);
-        let sum1 = create_binary(&mut world, BinaryOp::Add, x, y);
-        let sum2 = create_binary(&mut world, BinaryOp::Add, sum1, c);
-
-        let inputs = find_all_inputs(&world, sum2).unwrap();
-
-        // Should contain x and y but not c
-        assert_eq!(inputs.len(), 2);
-        assert!(inputs.contains(&x));
-        assert!(inputs.contains(&y));
-        assert!(!inputs.contains(&c));
     }
 
     #[test]

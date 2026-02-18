@@ -16,12 +16,19 @@ use crate::piecewise::PiecewiseFit;
 ///
 /// # Example
 ///
-/// ```ignore
-/// let compiled = PiecewiseCompiled::new(&fit_result.fit, 2)?;
-/// compiled.eval(1.5)?;
-/// let value = compiled.value();
-/// let first_deriv = compiled.partial(&[1])?;
 /// ```
+/// use bevy_autodiff_fit::{fit_dense, FitOptions, PiecewiseCompiled};
+///
+/// let x: Vec<f64> = (0..=50).map(|i| i as f64 / 50.0).collect();
+/// let y: Vec<f64> = x.iter().map(|&x| x * x).collect();
+/// let result = fit_dense(&x, &y, &[0.0, 1.0], &FitOptions { degree: 5 }).unwrap();
+///
+/// let mut compiled = PiecewiseCompiled::new(&result.fit, 2).unwrap();
+/// compiled.eval(0.5).unwrap();
+/// let value = compiled.value();
+/// let first_deriv = compiled.partial(&[1]).unwrap();
+/// ```
+#[derive(Clone, Debug)]
 pub struct PiecewiseCompiled<F: Float> {
     graphs: Vec<CompiledGraph<F>>,
     breakpoints: Vec<F>,
@@ -120,7 +127,7 @@ mod tests {
             .map(|i| std::f64::consts::PI * i as f64 / n as f64)
             .collect();
         let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin()).collect();
-        let bp = uniform_breakpoints(0.0, std::f64::consts::PI, 2);
+        let bp = uniform_breakpoints(0.0, std::f64::consts::PI, 2).unwrap();
         let result = fit_dense(&x_data, &y_data, &bp, &FitOptions { degree: 16 }).unwrap();
 
         let mut compiled = PiecewiseCompiled::new(&result.fit, 1).unwrap();

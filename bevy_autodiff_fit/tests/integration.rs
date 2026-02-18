@@ -18,9 +18,8 @@
 
 use bevy_autodiff::AutoDiff;
 use bevy_autodiff_fit::{
-    ContinuityOptions, FitOptions, FitOptions2D, PiecewiseCompiled, PiecewiseCompiled2D,
-    fit_dense, fit_dense_2d, fit_sparse, fit_sparse_2d, fit_sparse_continuous,
-    uniform_breakpoints,
+    ContinuityOptions, FitOptions, FitOptions2D, PiecewiseCompiled, PiecewiseCompiled2D, fit_dense,
+    fit_dense_2d, fit_sparse, fit_sparse_2d, fit_sparse_continuous, uniform_breakpoints,
 };
 
 #[test]
@@ -54,9 +53,21 @@ fn end_to_end_exp_dense() {
         let d2 = compiled.partial(&[2]).unwrap();
         let exact = x.exp();
 
-        assert!((val - exact).abs() < 5e-4, "f({x}): {val} vs {exact}, err = {:.2e}", (val - exact).abs());
-        assert!((d1 - exact).abs() < 5e-3, "f'({x}): {d1} vs {exact}, err = {:.2e}", (d1 - exact).abs());
-        assert!((d2 - exact).abs() < 5e-2, "f''({x}): {d2} vs {exact}, err = {:.2e}", (d2 - exact).abs());
+        assert!(
+            (val - exact).abs() < 5e-4,
+            "f({x}): {val} vs {exact}, err = {:.2e}",
+            (val - exact).abs()
+        );
+        assert!(
+            (d1 - exact).abs() < 5e-3,
+            "f'({x}): {d1} vs {exact}, err = {:.2e}",
+            (d1 - exact).abs()
+        );
+        assert!(
+            (d2 - exact).abs() < 5e-2,
+            "f''({x}): {d2} vs {exact}, err = {:.2e}",
+            (d2 - exact).abs()
+        );
     }
 
     assert!(result.reliability[0].max_reliable_order >= 2);
@@ -174,7 +185,7 @@ fn multi_segment_derivatives() {
     let two_pi = 2.0 * std::f64::consts::PI;
     let x_data: Vec<f64> = (0..=n).map(|i| two_pi * i as f64 / n as f64).collect();
     let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin()).collect();
-    let bp = uniform_breakpoints(0.0, two_pi, 4);
+    let bp = uniform_breakpoints(0.0, two_pi, 4).unwrap();
     let result = fit_dense(&x_data, &y_data, &bp, &FitOptions { degree: 16 }).unwrap();
 
     let mut compiled = PiecewiseCompiled::new(&result.fit, 1).unwrap();
@@ -369,10 +380,7 @@ fn end_to_end_2d_polynomial() {
     );
 
     let dxy = compiled.partial(&[1, 1]).unwrap();
-    assert!(
-        (dxy - 1.0).abs() < 1e-9,
-        "∂²f/∂x∂y = {dxy}, expected 1.0"
-    );
+    assert!((dxy - 1.0).abs() < 1e-9, "∂²f/∂x∂y = {dxy}, expected 1.0");
 }
 
 #[test]
@@ -534,7 +542,7 @@ fn continuous_1d_boundary() {
     let n = 150;
     let x_data: Vec<f64> = (0..=n).map(|i| 3.0 * i as f64 / n as f64).collect();
     let y_data: Vec<f64> = x_data.iter().map(|&x| x.exp()).collect();
-    let bp = uniform_breakpoints(0.0, 3.0, 3);
+    let bp = uniform_breakpoints(0.0, 3.0, 3).unwrap();
 
     let result = fit_sparse_continuous(
         &x_data,

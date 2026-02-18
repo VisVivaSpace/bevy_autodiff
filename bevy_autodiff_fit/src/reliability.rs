@@ -77,7 +77,7 @@ pub(crate) fn estimate_noise_floor(magnitudes: &[f64]) -> f64 {
     let quarter = (n / 4).max(2).min(n);
     let tail_start = n - quarter;
     let mut tail: Vec<f64> = magnitudes[tail_start..].to_vec();
-    tail.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    tail.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Median
     if tail.len().is_multiple_of(2) {
@@ -158,11 +158,16 @@ mod tests {
         };
         let rel = estimate_reliability(&seg);
         // With exact coefficients (no noise), noise floor should be 0
-        assert!(
-            rel.noise_floor == 0.0 || rel.max_reliable_order >= 2,
-            "expected reliable derivatives for exact polynomial, got order {} with noise floor {}",
-            rel.max_reliable_order,
+        // and all derivatives should be reliable up to the degree
+        assert_eq!(
+            rel.noise_floor, 0.0,
+            "exact polynomial should have zero noise floor, got {}",
             rel.noise_floor
+        );
+        assert!(
+            rel.max_reliable_order >= 2,
+            "expected reliable derivatives for exact polynomial, got order {}",
+            rel.max_reliable_order
         );
         assert_eq!(rel.coefficient_magnitudes.len(), 10);
     }

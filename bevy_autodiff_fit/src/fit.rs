@@ -37,7 +37,7 @@ impl<F: Float> ChebyshevSegment<F> {
 }
 
 /// Options controlling the fitting process.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FitOptions {
     /// Polynomial degree (same for all segments). Must be >= 1.
     pub degree: usize,
@@ -133,11 +133,21 @@ pub fn fit_dense(
 /// Generate n equally-spaced breakpoints covering [x_min, x_max].
 ///
 /// Returns n_segments + 1 breakpoints (n_segments intervals).
-pub fn uniform_breakpoints(x_min: f64, x_max: f64, n_segments: usize) -> Vec<f64> {
-    assert!(n_segments >= 1, "need at least 1 segment");
-    (0..=n_segments)
+///
+/// # Errors
+///
+/// Returns `FitError::InvalidBreakpoints` if `n_segments == 0` or `x_min >= x_max`.
+pub fn uniform_breakpoints(
+    x_min: f64,
+    x_max: f64,
+    n_segments: usize,
+) -> Result<Vec<f64>, FitError> {
+    if n_segments == 0 || x_min >= x_max {
+        return Err(FitError::InvalidBreakpoints);
+    }
+    Ok((0..=n_segments)
         .map(|i| x_min + (x_max - x_min) * i as f64 / n_segments as f64)
-        .collect()
+        .collect())
 }
 
 /// Validate that breakpoints are strictly increasing.
@@ -396,11 +406,18 @@ mod tests {
 
     #[test]
     fn uniform_breakpoints_basic() {
-        let bp = uniform_breakpoints(0.0, 1.0, 4);
+        let bp = uniform_breakpoints(0.0, 1.0, 4).unwrap();
         assert_eq!(bp.len(), 5);
         assert!((bp[0] - 0.0).abs() < 1e-14);
         assert!((bp[1] - 0.25).abs() < 1e-14);
         assert!((bp[4] - 1.0).abs() < 1e-14);
+    }
+
+    #[test]
+    fn uniform_breakpoints_errors() {
+        assert!(uniform_breakpoints(0.0, 1.0, 0).is_err());
+        assert!(uniform_breakpoints(1.0, 0.0, 1).is_err());
+        assert!(uniform_breakpoints(1.0, 1.0, 1).is_err());
     }
 
     #[test]
@@ -436,7 +453,7 @@ mod tests {
             .map(|i| std::f64::consts::PI * i as f64 / n as f64)
             .collect();
         let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin()).collect();
-        let breakpoints = uniform_breakpoints(0.0, std::f64::consts::PI, 2);
+        let breakpoints = uniform_breakpoints(0.0, std::f64::consts::PI, 2).unwrap();
         let options = FitOptions { degree: 16 };
 
         let result = fit_dense(&x_data, &y_data, &breakpoints, &options).unwrap();
@@ -575,7 +592,7 @@ mod tests {
         // Fit exp(x) on [0, 2] with 2 segments
         let x_data: Vec<f64> = (0..30).map(|i| 2.0 * i as f64 / 29.0).collect();
         let y_data: Vec<f64> = x_data.iter().map(|&x| x.exp()).collect();
-        let bp = uniform_breakpoints(0.0, 2.0, 2);
+        let bp = uniform_breakpoints(0.0, 2.0, 2).unwrap();
         let result = fit_sparse(&x_data, &y_data, &bp, &FitOptions { degree: 8 }).unwrap();
 
         for &x in &[0.1, 0.5, 1.0, 1.5, 1.9] {

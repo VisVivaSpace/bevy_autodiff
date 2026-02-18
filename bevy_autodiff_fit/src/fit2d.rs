@@ -93,7 +93,7 @@ impl<F: Float> ChebyshevSegment2D<F> {
 }
 
 /// Options controlling the 2D fitting process.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FitOptions2D {
     /// Polynomial degree in x. Must be >= 1.
     pub degree_x: usize,
@@ -154,7 +154,11 @@ pub fn fit_dense_2d(
     if z_data.len() != y_data.len() {
         return Err(FitError::GridDimensionMismatch {
             rows: z_data.len(),
-            cols: if z_data.is_empty() { 0 } else { z_data[0].len() },
+            cols: if z_data.is_empty() {
+                0
+            } else {
+                z_data[0].len()
+            },
             expected_rows: y_data.len(),
             expected_cols: x_data.len(),
         });
@@ -201,12 +205,22 @@ pub fn fit_dense_2d(
             for (jy, row) in z_data.iter().enumerate() {
                 let y_val = y_data[jy];
                 // Only process rows within the y segment
-                if y_val < ay - 1e-14 || y_val > by + 1e-14 {
+                // Use tolerance relative to segment width to handle domains of different scales
+                let y_tol = (by - ay) * 1e-12;
+                if y_val < ay - y_tol || y_val > by + y_tol {
                     continue;
                 }
                 let resampled = chebyshev::linear_interpolate(x_data, row, &x_mapped);
                 let x_coeffs = chebyshev::chebyshev_coefficients(&resampled);
                 intermediate.push((y_val, x_coeffs));
+            }
+
+            // Need at least 2 rows for linear interpolation in y
+            if intermediate.len() < 2 {
+                return Err(FitError::InsufficientData {
+                    min: 2,
+                    got: intermediate.len(),
+                });
             }
 
             // Step 2: For each x-mode i, collect intermediate coefficients across y,
@@ -222,12 +236,10 @@ pub fn fit_dense_2d(
             for i in 0..n_x {
                 // Collect the i-th x-coefficient as a function of y
                 let inter_y: Vec<f64> = intermediate.iter().map(|(y, _)| *y).collect();
-                let inter_vals: Vec<f64> =
-                    intermediate.iter().map(|(_, xc)| xc[i]).collect();
+                let inter_vals: Vec<f64> = intermediate.iter().map(|(_, xc)| xc[i]).collect();
 
                 // Resample onto y Chebyshev nodes
-                let resampled_y =
-                    chebyshev::linear_interpolate(&inter_y, &inter_vals, &y_mapped);
+                let resampled_y = chebyshev::linear_interpolate(&inter_y, &inter_vals, &y_mapped);
                 let y_coeffs = chebyshev::chebyshev_coefficients(&resampled_y);
 
                 // Store in row-major: coeffs[i * n_y + j]
@@ -286,9 +298,10 @@ pub fn fit_sparse_2d(
     options: &FitOptions2D,
 ) -> Result<FitResult2D<f64>, FitError> {
     if x_data.len() != y_data.len() || x_data.len() != z_data.len() {
-        return Err(FitError::LengthMismatch {
+        return Err(FitError::ScatterLengthMismatch {
             x_len: x_data.len(),
             y_len: y_data.len(),
+            z_len: z_data.len(),
         });
     }
     if options.degree_x < 1 {
@@ -413,10 +426,7 @@ mod tests {
             b_y: 1.0,
         };
         let val = seg.eval(0.5, 0.5);
-        assert!(
-            (val - 5.0).abs() < 1e-14,
-            "expected 5.0, got {val}"
-        );
+        assert!((val - 5.0).abs() < 1e-14, "expected 5.0, got {val}");
     }
 
     #[test]
@@ -663,27 +673,33 @@ mod tests {
         assert!(fit_sparse_2d(&[0.0], &[0.0, 1.0], &[0.0], [0.0, 1.0], [0.0, 1.0], &opts).is_err());
 
         // Insufficient data
-        assert!(fit_sparse_2d(
-            &[0.0, 1.0],
-            &[0.0, 1.0],
-            &[0.0, 1.0],
-            [0.0, 1.0],
-            [0.0, 1.0],
-            &opts,
-        ).is_err());
+        assert!(
+            fit_sparse_2d(
+                &[0.0, 1.0],
+                &[0.0, 1.0],
+                &[0.0, 1.0],
+                [0.0, 1.0],
+                [0.0, 1.0],
+                &opts,
+            )
+            .is_err()
+        );
 
         // Invalid degree
         let bad_opts = FitOptions2D {
             degree_x: 0,
             degree_y: 2,
         };
-        assert!(fit_sparse_2d(
-            &[0.0; 20],
-            &[0.0; 20],
-            &[0.0; 20],
-            [0.0, 1.0],
-            [0.0, 1.0],
-            &bad_opts,
-        ).is_err());
+        assert!(
+            fit_sparse_2d(
+                &[0.0; 20],
+                &[0.0; 20],
+                &[0.0; 20],
+                [0.0, 1.0],
+                [0.0, 1.0],
+                &bad_opts,
+            )
+            .is_err()
+        );
     }
 }

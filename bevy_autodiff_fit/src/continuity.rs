@@ -13,12 +13,17 @@ use crate::piecewise::PiecewiseFit;
 use crate::reliability;
 
 /// Options for continuity enforcement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContinuityOptions {
     /// Maximum derivative order to enforce (0 = C⁰, 1 = C¹, ...).
     pub order: usize,
     /// Penalty weight. Higher values enforce continuity more tightly
     /// at the cost of slightly worse data fit. Typical range: 1e2–1e6.
+    ///
+    /// The weight scales the **physical-domain** derivative constraint rows
+    /// in the QR system. For segments of different widths, the Jacobian (2/h)^d
+    /// is included automatically, so the same weight produces comparable
+    /// enforcement regardless of segment size.
     pub weight: f64,
 }
 
@@ -81,15 +86,13 @@ pub fn fit_sparse_continuous(
     }
 
     // Check each segment has enough data
-    for (i, (sx, _)) in seg_data.iter().enumerate() {
+    for (sx, _) in &seg_data {
         if sx.len() < n_basis {
             return Err(FitError::InsufficientData {
                 min: n_basis,
                 got: sx.len(),
             });
         }
-        // Also verify breakpoints match
-        let _ = (breakpoints[i], breakpoints[i + 1]);
     }
 
     // Build the global system: block-diagonal data rows + constraint rows
@@ -137,8 +140,7 @@ pub fn fit_sparse_continuous(
             for k in 0..n_basis {
                 // Left segment evaluated at t=+1 (right boundary)
                 let tk_d_right = chebyshev_deriv_at_one(k, d);
-                global_a[constraint_row][col_left + k] =
-                    continuity.weight * jac_left * tk_d_right;
+                global_a[constraint_row][col_left + k] = continuity.weight * jac_left * tk_d_right;
 
                 // Right segment evaluated at t=-1 (left boundary), subtracted
                 let tk_d_left = chebyshev_deriv_at_neg_one(k, d);
@@ -303,8 +305,7 @@ mod tests {
         // Evaluate derivative at boundary: f'(x) = (2/h) * g'(t=±1)
         // where g'(t) = dc_0/2 + Σ dc_k T_k(t) in the Clenshaw convention
         // At t=1: g'(1) = dc_0/2 + Σ dc_k (since T_k(1) = 1)
-        let g_prime_left_at_1 = dc_left[0] / 2.0
-            + dc_left.iter().skip(1).sum::<f64>();
+        let g_prime_left_at_1 = dc_left[0] / 2.0 + dc_left.iter().skip(1).sum::<f64>();
         let g_prime_right_at_neg1 = dc_right[0] / 2.0
             + dc_right
                 .iter()
@@ -334,9 +335,8 @@ mod tests {
 
         // Unconstrained
         let unconstrained = crate::fit::fit_sparse(&x_data, &y_data, bp, &opts).unwrap();
-        let gap_unc = (unconstrained.fit.segment(0).eval(1.0)
-            - unconstrained.fit.segment(1).eval(1.0))
-        .abs();
+        let gap_unc =
+            (unconstrained.fit.segment(0).eval(1.0) - unconstrained.fit.segment(1).eval(1.0)).abs();
 
         // Constrained C⁰
         let constrained = fit_sparse_continuous(
@@ -350,9 +350,8 @@ mod tests {
             },
         )
         .unwrap();
-        let gap_con = (constrained.fit.segment(0).eval(1.0)
-            - constrained.fit.segment(1).eval(1.0))
-        .abs();
+        let gap_con =
+            (constrained.fit.segment(0).eval(1.0) - constrained.fit.segment(1).eval(1.0)).abs();
 
         // Constrained gap should be smaller (or at most equal)
         assert!(
@@ -382,9 +381,6 @@ mod tests {
 
         assert_eq!(result.fit.num_segments(), 1);
         let val = result.fit.eval(0.5);
-        assert!(
-            (val - 0.25).abs() < 1e-4,
-            "f(0.5) = {val}, expected 0.25"
-        );
+        assert!((val - 0.25).abs() < 1e-4, "f(0.5) = {val}, expected 0.25");
     }
 }

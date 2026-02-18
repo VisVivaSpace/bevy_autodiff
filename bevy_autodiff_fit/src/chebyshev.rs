@@ -132,7 +132,9 @@ pub fn linear_interpolate(x_data: &[f64], y_data: &[f64], x_eval: &[f64]) -> Vec
             }
 
             // Binary search for the interval containing x
-            let i = match x_data.binary_search_by(|probe| probe.partial_cmp(&x).unwrap()) {
+            let i = match x_data
+                .binary_search_by(|probe| probe.partial_cmp(&x).unwrap_or(std::cmp::Ordering::Less))
+            {
                 Ok(i) => return y_data[i],
                 Err(i) => i,
             };

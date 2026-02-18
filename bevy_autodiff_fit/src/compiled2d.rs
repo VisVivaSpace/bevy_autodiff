@@ -13,6 +13,7 @@ use crate::piecewise2d::PiecewiseFit2D;
 /// Holds one [`CompiledGraph`] per segment (row-major). Each graph includes
 /// both domain mappings (x and y), so inputs are in physical coordinates.
 /// Partial derivatives use multi-indices: `&[1, 0]` = ∂f/∂x, `&[0, 1]` = ∂f/∂y.
+#[derive(Clone, Debug)]
 pub struct PiecewiseCompiled2D<F: Float> {
     graphs: Vec<CompiledGraph<F>>,
     breakpoints_x: Vec<F>,
@@ -60,9 +61,7 @@ impl<F: Float + PartialOrd> PiecewiseCompiled2D<F> {
         let (ix, iy) = self.find_segment(x, y)?;
         let idx = iy * self.n_segments_x + ix;
         self.active_segment = idx;
-        self.graphs[idx]
-            .eval(&[x, y])
-            .map_err(FitError::AutoDiff)?;
+        self.graphs[idx].eval(&[x, y]).map_err(FitError::AutoDiff)?;
         Ok(())
     }
 

@@ -99,7 +99,7 @@ impl<F: Float + PartialOrd> PiecewiseFit2D<F> {
     ///
     /// # Errors
     ///
-    /// Returns `FitError::OutOfDomain2D` if (x, y) is outside the domain.
+    /// Returns `FitError::OutOfDomain` if (x, y) is outside the domain.
     pub fn segment_index(&self, x: F, y: F) -> Result<(usize, usize), FitError> {
         let ix = find_segment_1d(&self.breakpoints_x, x, self.n_segments_x)?;
         let iy = find_segment_1d(&self.breakpoints_y, y, self.n_segments_y)?;
@@ -107,14 +107,28 @@ impl<F: Float + PartialOrd> PiecewiseFit2D<F> {
     }
 
     /// Evaluate the piecewise 2D fit at (x, y).
+    ///
+    /// Points outside the domain are clamped to the nearest segment —
+    /// use [`try_eval`](Self::try_eval) to get an error instead.
     pub fn eval(&self, x: F, y: F) -> F {
         let (ix, iy) = self.segment_index(x, y).unwrap_or_else(|_| {
-            // Clamp to domain
             let ix = clamp_segment(&self.breakpoints_x, x, self.n_segments_x);
             let iy = clamp_segment(&self.breakpoints_y, y, self.n_segments_y);
             (ix, iy)
         });
         self.segments[iy * self.n_segments_x + ix].eval(x, y)
+    }
+
+    /// Evaluate the piecewise 2D fit at (x, y), returning an error if out of domain.
+    ///
+    /// Unlike [`eval`](Self::eval), this does not clamp out-of-domain points.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FitError::OutOfDomain` if (x, y) is outside the fitted domain.
+    pub fn try_eval(&self, x: F, y: F) -> Result<F, FitError> {
+        let (ix, iy) = self.segment_index(x, y)?;
+        Ok(self.segments[iy * self.n_segments_x + ix].eval(x, y))
     }
 
     /// Build a graph for a specific segment.
@@ -140,11 +154,6 @@ impl<F: Float + PartialOrd> PiecewiseFit2D<F> {
         Ok(self.segments[iy * self.n_segments_x + ix].build_graph(ad, x, y))
     }
 
-    /// Access the flat segments vector (for compiled2d).
-    #[allow(dead_code)] // Used by compiled2d in Phase 3
-    pub(crate) fn segments(&self) -> &[ChebyshevSegment2D<F>] {
-        &self.segments
-    }
 }
 
 /// Find the segment index for a 1D coordinate within breakpoints.
@@ -174,11 +183,7 @@ fn find_segment_1d<F: Float + PartialOrd>(
 }
 
 /// Clamp to valid segment index.
-fn clamp_segment<F: Float + PartialOrd>(
-    breakpoints: &[F],
-    x: F,
-    n_segments: usize,
-) -> usize {
+fn clamp_segment<F: Float + PartialOrd>(breakpoints: &[F], x: F, n_segments: usize) -> usize {
     if x <= breakpoints[0] {
         return 0;
     }
@@ -220,7 +225,10 @@ mod tests {
             &zd,
             [0.0, 1.0],
             [0.0, 1.0],
-            &FitOptions2D { degree_x: 2, degree_y: 2 },
+            &FitOptions2D {
+                degree_x: 2,
+                degree_y: 2,
+            },
         )
         .unwrap();
 
@@ -251,7 +259,10 @@ mod tests {
             &zd,
             [0.0, 1.0],
             [0.0, 1.0],
-            &FitOptions2D { degree_x: 2, degree_y: 2 },
+            &FitOptions2D {
+                degree_x: 2,
+                degree_y: 2,
+            },
         )
         .unwrap();
 

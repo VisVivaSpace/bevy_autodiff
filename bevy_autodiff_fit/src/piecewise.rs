@@ -68,9 +68,9 @@ impl<F: Float> PiecewiseFit<F> {
 impl<F: Float + PartialOrd> PiecewiseFit<F> {
     /// Find which segment contains x.
     ///
-    /// Returns the segment index. Points exactly at a breakpoint (other than
-    /// the first) belong to the left segment. The last segment includes the
-    /// right endpoint.
+    /// Returns the segment index. Points exactly at an internal breakpoint
+    /// belong to the right segment (the one starting at that breakpoint).
+    /// The last segment includes the right endpoint.
     ///
     /// # Errors
     ///
@@ -83,13 +83,12 @@ impl<F: Float + PartialOrd> PiecewiseFit<F> {
             return Err(FitError::out_of_domain(x, a, b));
         }
 
-        // Binary search: find the rightmost breakpoint <= x
         let n = self.segments.len();
         if n == 1 {
             return Ok(0);
         }
 
-        // Linear scan for small n, binary search otherwise
+        // Reverse linear scan: find the rightmost breakpoint <= x
         for i in (0..n).rev() {
             if x >= self.breakpoints[i] {
                 return Ok(i);
@@ -101,13 +100,10 @@ impl<F: Float + PartialOrd> PiecewiseFit<F> {
 
     /// Evaluate the piecewise fit at x.
     ///
-    /// Automatically selects the correct segment.
-    ///
-    /// # Errors
-    ///
-    /// Returns `FitError::OutOfDomain` if x is outside the fitted domain.
+    /// Automatically selects the correct segment. Points outside the domain
+    /// are clamped to the nearest segment — use [`try_eval`](Self::try_eval)
+    /// to get an error instead.
     pub fn eval(&self, x: F) -> F {
-        // For standalone eval, we clamp to domain to avoid errors on boundary
         let idx = self.segment_index(x).unwrap_or_else(|_| {
             if x <= self.domain_min() {
                 0
@@ -118,6 +114,18 @@ impl<F: Float + PartialOrd> PiecewiseFit<F> {
         self.segments[idx].eval(x)
     }
 
+    /// Evaluate the piecewise fit at x, returning an error if out of domain.
+    ///
+    /// Unlike [`eval`](Self::eval), this does not clamp out-of-domain points.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FitError::OutOfDomain` if x is outside the fitted domain.
+    pub fn try_eval(&self, x: F) -> Result<F, FitError> {
+        let idx = self.segment_index(x)?;
+        Ok(self.segments[idx].eval(x))
+    }
+
     /// Evaluate the k-th derivative at x using the Chebyshev derivative recurrence.
     ///
     /// This is a standalone evaluation (no autodiff graph involved). The derivative
@@ -125,10 +133,7 @@ impl<F: Float + PartialOrd> PiecewiseFit<F> {
     /// evaluated via Clenshaw.
     ///
     /// The domain mapping Jacobian (2/(b-a))^order is applied automatically.
-    pub fn eval_derivative(&self, x: f64, order: usize) -> f64
-    where
-        F: Into<f64> + Copy,
-    {
+    pub fn eval_derivative(&self, x: f64, order: usize) -> f64 {
         let idx = self.segment_index_f64(x);
         let seg = &self.segments[idx];
         let a: f64 = seg.a.to_f64();
@@ -263,6 +268,34 @@ mod tests {
     }
 
     #[test]
+    fn try_eval_returns_error_out_of_domain() {
+        let seg = ChebyshevSegment {
+            coeffs: vec![2.0, 1.0],
+            a: 0.0,
+            b: 1.0,
+        };
+        let pw = PiecewiseFit::new(vec![seg], vec![0.0, 1.0]);
+        // try_eval returns error for out-of-domain
+        assert!(pw.try_eval(-0.1).is_err());
+        assert!(pw.try_eval(1.1).is_err());
+        // try_eval returns Ok for in-domain
+        assert!(pw.try_eval(0.5).is_ok());
+    }
+
+    #[test]
+    fn eval_clamps_out_of_domain() {
+        let seg = ChebyshevSegment {
+            coeffs: vec![2.0, 1.0],
+            a: 0.0,
+            b: 1.0,
+        };
+        let pw = PiecewiseFit::new(vec![seg], vec![0.0, 1.0]);
+        // eval does not panic for out-of-domain, it clamps
+        let _ = pw.eval(-0.1);
+        let _ = pw.eval(1.1);
+    }
+
+    #[test]
     fn piecewise_continuity_at_boundary() {
         // Fit sin(x) on [0, π] with 2 segments — should be continuous at π/2
         let n = 100;
@@ -270,7 +303,7 @@ mod tests {
             .map(|i| std::f64::consts::PI * i as f64 / n as f64)
             .collect();
         let y_data: Vec<f64> = x_data.iter().map(|&x| x.sin()).collect();
-        let bp = uniform_breakpoints(0.0, std::f64::consts::PI, 2);
+        let bp = uniform_breakpoints(0.0, std::f64::consts::PI, 2).unwrap();
         let result = fit_dense(&x_data, &y_data, &bp, &FitOptions { degree: 16 }).unwrap();
 
         // Evaluate just left and just right of the boundary
