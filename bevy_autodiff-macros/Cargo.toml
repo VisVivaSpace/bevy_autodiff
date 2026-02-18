@@ -8,9 +8,11 @@ description = "Procedural macros for bevy_autodiff automatic differentiation"
 license = "MIT"
 repository = "https://github.com/VisVivaSpace/bevy_autodiff"
 homepage = "https://github.com/VisVivaSpace/bevy_autodiff"
-documentation = "https://docs.rs/bevy_autodiff"
+documentation = "https://docs.rs/bevy_autodiff-macros"
+readme = "README.md"
 keywords = ["autodiff", "differentiation", "bevy", "macros"]
 categories = ["science", "mathematics"]
+exclude = ["target/"]
 
 [lib]
 proc-macro = true
