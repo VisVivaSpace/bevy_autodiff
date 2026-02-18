@@ -163,6 +163,35 @@ Generates a standalone WGSL function from a compiled graph. All 23 operations ma
 - `GpuGraph` -- prepared GPU buffers for a compiled graph (feature `wgpu`). Derives `Component`, `Resource`.
 - `GpuResults` -- GPU evaluation results with values and partials (feature `wgpu`)
 
+## Companion Crate: bevy_autodiff_fit
+
+[`bevy_autodiff_fit`](https://crates.io/crates/bevy_autodiff_fit) fits piecewise Chebyshev polynomials to tabulated data, then differentiates them exactly through the AD graph. Use it when you have data tables instead of closed-form functions.
+
+```toml
+[dependencies]
+bevy_autodiff_fit = "0.1"
+```
+
+```rust
+use bevy_autodiff_fit::{fit_dense, FitOptions, PiecewiseCompiled};
+
+let x: Vec<f64> = (0..=100).map(|i| i as f64 / 100.0).collect();
+let y: Vec<f64> = x.iter().map(|&x| x.sin()).collect();
+let result = fit_dense(&x, &y, &[0.0, 1.0], &FitOptions { degree: 20 }).unwrap();
+
+let mut compiled = PiecewiseCompiled::new(&result.fit, 1).unwrap();
+compiled.eval(0.5).unwrap();
+let value = compiled.value();
+let derivative = compiled.partial(&[1]).unwrap();
+```
+
+Features:
+- 1D and 2D tensor product Chebyshev fitting (dense and sparse data)
+- Clenshaw evaluation built as AD graph nodes — `differentiate()` just works
+- `PiecewiseCompiled` / `PiecewiseCompiled2D` for fast repeated evaluation with derivatives
+- C^k continuity constraints at segment boundaries
+- Derivative reliability estimation from coefficient decay
+
 ## Limitations
 
 - Maximum 64 input variables (dependency tracking uses a `u64` bitmask)
