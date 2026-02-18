@@ -30,6 +30,15 @@ pub enum FitError {
     #[error("x = {x} is outside the fitted domain [{a}, {b}]")]
     OutOfDomain { x: String, a: String, b: String },
 
+    /// 2D grid data has wrong dimensions.
+    #[error("grid data has {rows} rows and {cols} columns, expected {expected_rows}×{expected_cols}")]
+    GridDimensionMismatch {
+        rows: usize,
+        cols: usize,
+        expected_rows: usize,
+        expected_cols: usize,
+    },
+
     /// An error from the underlying autodiff library.
     #[error("autodiff error: {0}")]
     AutoDiff(#[from] bevy_autodiff::AutoDiffError),

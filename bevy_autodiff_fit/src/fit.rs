@@ -141,7 +141,7 @@ pub fn uniform_breakpoints(x_min: f64, x_max: f64, n_segments: usize) -> Vec<f64
 }
 
 /// Validate that breakpoints are strictly increasing.
-fn validate_breakpoints(breakpoints: &[f64]) -> Result<(), FitError> {
+pub(crate) fn validate_breakpoints(breakpoints: &[f64]) -> Result<(), FitError> {
     if breakpoints.len() < 2 {
         return Err(FitError::InvalidBreakpoints);
     }
@@ -262,7 +262,7 @@ pub fn fit_sparse(
 /// where T_k is the k-th Chebyshev polynomial of the first kind.
 ///
 /// Returns a row-major matrix as Vec<Vec<f64>> (m rows, n+1 columns).
-fn chebyshev_vandermonde(t_points: &[f64], degree: usize) -> Vec<Vec<f64>> {
+pub(crate) fn chebyshev_vandermonde(t_points: &[f64], degree: usize) -> Vec<Vec<f64>> {
     let m = t_points.len();
     let n = degree + 1;
 
@@ -291,7 +291,7 @@ fn chebyshev_vandermonde(t_points: &[f64], degree: usize) -> Vec<Vec<f64>> {
 /// Algorithm: factor A = Q*R via Householder reflections, then solve R*x = Q^T*b
 /// by back-substitution.
 #[allow(clippy::needless_range_loop)] // col indexes 2nd dimension r[row][col], not r itself
-fn householder_qr_solve(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+pub(crate) fn householder_qr_solve(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let m = a.len();
     let n = a[0].len();
     assert!(m >= n, "need at least as many rows as columns");

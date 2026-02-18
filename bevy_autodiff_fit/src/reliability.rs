@@ -67,7 +67,7 @@ pub fn estimate_reliability<F: Float>(segment: &ChebyshevSegment<F>) -> SegmentR
 ///
 /// Uses the median of the last quarter of coefficients as the noise estimate.
 /// For smooth functions, these high-degree coefficients are at or below the noise level.
-fn estimate_noise_floor(magnitudes: &[f64]) -> f64 {
+pub(crate) fn estimate_noise_floor(magnitudes: &[f64]) -> f64 {
     let n = magnitudes.len();
     if n <= 2 {
         return magnitudes.last().copied().unwrap_or(0.0);
@@ -93,7 +93,7 @@ fn estimate_noise_floor(magnitudes: &[f64]) -> f64 {
 /// 1. Compute derivative coefficients (applying the recurrence d times)
 /// 2. Scale the noise floor by jacobian^d (derivative amplification)
 /// 3. Check if the leading derivative coefficients are above the noise
-fn find_max_reliable_order(coeffs: &[f64], noise_floor: f64, jacobian: f64) -> usize {
+pub(crate) fn find_max_reliable_order(coeffs: &[f64], noise_floor: f64, jacobian: f64) -> usize {
     if noise_floor == 0.0 {
         // Perfect data (e.g., exact polynomial) — all derivatives reliable
         // up to degree

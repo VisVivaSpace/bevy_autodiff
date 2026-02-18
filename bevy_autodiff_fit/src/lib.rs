@@ -59,13 +59,19 @@
 
 pub mod chebyshev;
 mod compiled;
+mod compiled2d;
+pub mod continuity;
 pub mod error;
 mod fit;
+mod fit2d;
 mod graph;
+mod graph2d;
 pub mod piecewise;
+pub mod piecewise2d;
 pub mod reliability;
+pub mod reliability2d;
 
-// Re-exports: primary public API
+// Re-exports: 1D public API
 pub use compiled::PiecewiseCompiled;
 pub use error::FitError;
 pub use fit::{
@@ -73,3 +79,12 @@ pub use fit::{
 };
 pub use piecewise::PiecewiseFit;
 pub use reliability::SegmentReliability;
+
+// Re-exports: Continuity
+pub use continuity::{ContinuityOptions, fit_sparse_continuous};
+
+// Re-exports: 2D public API
+pub use compiled2d::PiecewiseCompiled2D;
+pub use fit2d::{ChebyshevSegment2D, FitOptions2D, FitResult2D, fit_dense_2d, fit_sparse_2d};
+pub use piecewise2d::PiecewiseFit2D;
+pub use reliability2d::SegmentReliability2D;
