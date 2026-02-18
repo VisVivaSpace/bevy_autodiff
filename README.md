@@ -25,6 +25,43 @@ This design makes the graph open and extensible: adding new metadata to nodes is
 - **Higher-order exact derivatives** — Hessians, mixed partials via successive symbolic differentiation
 - **f32-stable second-order** — `#[autodiff(stable_derivatives)]` routes through logarithmic derivative variants
 - **23 elementary operations** — all with symbolic differentiation rules and reverse-mode adjoints
+- **Chebyshev fitting** — [`bevy_autodiff_fit`](https://crates.io/crates/bevy_autodiff_fit) fits piecewise Chebyshev polynomials to tabulated data (1D and 2D), then differentiates them exactly through the AD graph
+
+## Fitting Tabulated Data
+
+Have data tables instead of closed-form functions? [`bevy_autodiff_fit`](https://crates.io/crates/bevy_autodiff_fit) fits piecewise Chebyshev polynomials to your data, then integrates them as AD graph nodes so `differentiate()` just works. Supports 1D and 2D tensor product fits, dense and sparse data, continuity constraints at segment boundaries, and derivative reliability estimation.
+
+```toml
+[dependencies]
+bevy_autodiff_fit = "0.1"
+```
+
+```rust
+use bevy_autodiff_fit::{fit_dense, FitOptions, PiecewiseCompiled};
+
+// Fit sin(x) from tabulated data
+let x: Vec<f64> = (0..=100).map(|i| i as f64 / 100.0).collect();
+let y: Vec<f64> = x.iter().map(|&x| x.sin()).collect();
+let result = fit_dense(&x, &y, &[0.0, 1.0], &FitOptions { degree: 20 }).unwrap();
+
+// Compiled evaluation with exact derivatives
+let mut compiled = PiecewiseCompiled::new(&result.fit, 1).unwrap();
+compiled.eval(0.5).unwrap();
+let value = compiled.value();          // f(0.5)
+let derivative = compiled.partial(&[1]).unwrap();  // f'(0.5)
+```
+
+The fit can also be composed with other AD operations — build the Clenshaw evaluation as graph nodes, then differentiate through the entire expression:
+
+```rust
+use bevy_autodiff::AutoDiff;
+
+let mut ad = AutoDiff::new();
+let x = ad.var(0.5).unwrap();
+let f = result.fit.build_segment_graph(&mut ad, x, 0).unwrap();
+let g = ad.exp(f);  // g = exp(fit(x))
+let dg = ad.differentiate(g, x).unwrap();  // chain rule is automatic
+```
 
 ## Installation
 
