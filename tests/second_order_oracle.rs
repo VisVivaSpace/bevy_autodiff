@@ -196,6 +196,136 @@ fn second_order_pow_log_wrt_x() {
 }
 
 // ============================================================================
+// Inverse hyperbolic second derivatives
+// ============================================================================
+
+#[test]
+fn second_order_asinh() {
+    // d²[asinh(x)]/dx² = -x / (x² + 1)^(3/2)
+    for &x in &[0.5, 1.0, 1.5, 2.0] {
+        let got = second_deriv(x, |ad, x| ad.asinh(x));
+        let expected = -x / (x * x + 1.0).powf(1.5);
+        assert_relative_eq!(got, expected, epsilon = EPS);
+    }
+}
+
+#[test]
+fn second_order_acosh() {
+    // d²[acosh(x)]/dx² = -x / (x² - 1)^(3/2)  (valid for x > 1)
+    for &x in &[1.5, 2.0, 3.0] {
+        let got = second_deriv(x, |ad, x| ad.acosh(x));
+        let expected = -x / (x * x - 1.0).powf(1.5);
+        assert_relative_eq!(got, expected, epsilon = EPS);
+    }
+}
+
+#[test]
+fn second_order_atanh() {
+    // d²[atanh(x)]/dx² = 2x / (1 - x²)²  (valid for |x| < 1)
+    for &x in &[0.3, 0.5, 0.7] {
+        let got = second_deriv(x, |ad, x| ad.atanh(x));
+        let expected = 2.0 * x / (1.0 - x * x).powi(2);
+        assert_relative_eq!(got, expected, epsilon = EPS);
+    }
+}
+
+// ============================================================================
+// Log-variant f32 stability: two-body gravitational Hessian
+// ============================================================================
+
+#[test]
+fn log_variant_f32_stability() {
+    // Two-body gravitational acceleration: a_x = -mu · rx · r²^(-3/2)
+    // where r² = rx² + ry² + rz².
+    //
+    // Standard path: factor = div(-mu, mul(r2, sqrt(r2))).
+    //   The Div differentiation rule creates square(square(r3)) in the
+    //   second-order derivative graph. At position (5000, 3000, 1000) km:
+    //     r3 = r2 * sqrt(r2) ≈ 2.07e11,  r3^4 ≈ 1.84e45
+    //   This exceeds f32 max (≈3.4e38), overflows to +Inf, and the
+    //   subsequent division gives 0.0 — a 100% relative error on d²a_x/dry².
+    //
+    // powf_log path: a_x = mul(-mu, mul(powf_log(r2, -1.5), rx)).
+    //   Keeps all intermediate values proportional to r2^(-1.5) ≈ 4.8e-12.
+    //   No overflow; relative error < 0.1%.
+    //
+    // This is the original motivation for pow_log (see CHANGELOG v0.6.0,
+    // and the `second_order_two_body_f32_diagnostic` test in codegen.rs).
+
+    let (rx_val, ry_val, rz_val) = (5000.0_f32, 3000.0_f32, 1000.0_f32);
+    let mu = 398600.44_f32; // Earth gravitational parameter (km³/s²), f32 precision
+
+    // Analytical d²a_x/dry² = mu · rx · r²^(-3.5) · (3·r² − 15·ry²)
+    // Computed in f64 to serve as a reference.
+    let (x64, y64, z64) = (rx_val as f64, ry_val as f64, rz_val as f64);
+    let r2_64 = x64 * x64 + y64 * y64 + z64 * z64;
+    let analytical =
+        (398600.4418_f64 * x64 * r2_64.powf(-3.5) * (3.0 * r2_64 - 15.0 * y64 * y64)) as f32;
+    // ≈ -2.357e-10 f32
+
+    // Standard path — div(-mu, mul(r2, sqrt(r2))).
+    // Second-order quotient rule creates Square(Square(r3)) ≈ r3^4 ≈ 1.84e45
+    // which overflows f32, causing d²a_x/dry² = 0.0.
+    let std_d2 = {
+        let mut ad = AutoDiff::<f32>::new();
+        let rx = ad.var(rx_val).unwrap();
+        let ry = ad.var(ry_val).unwrap();
+        let rz = ad.var(rz_val).unwrap();
+        let rx2 = ad.square(rx);
+        let ry2 = ad.square(ry);
+        let rz2 = ad.square(rz);
+        let rxy2 = ad.add(rx2, ry2);
+        let r2 = ad.add(rxy2, rz2);
+        let r_mag = ad.sqrt(r2);
+        let r3 = ad.mul(r2, r_mag);
+        let neg_mu = ad.constant(-mu);
+        let factor = ad.div(neg_mu, r3);
+        let accel = ad.mul(factor, rx);
+        ad.derivative(accel, ry, 2).unwrap()
+    };
+
+    // powf_log path — mul(-mu, mul(powf_log(r2, -1.5), rx)).
+    // Keeps intermediates near r2^(-1.5); no overflow.
+    let log_d2 = {
+        let mut ad = AutoDiff::<f32>::new();
+        let rx = ad.var(rx_val).unwrap();
+        let ry = ad.var(ry_val).unwrap();
+        let rz = ad.var(rz_val).unwrap();
+        let rx2 = ad.square(rx);
+        let ry2 = ad.square(ry);
+        let rz2 = ad.square(rz);
+        let rxy2 = ad.add(rx2, ry2);
+        let r2 = ad.add(rxy2, rz2);
+        let r2_n15 = ad.powf_log(r2, -1.5_f32);
+        let neg_mu = ad.constant(-mu);
+        let f1 = ad.mul(neg_mu, r2_n15);
+        let accel = ad.mul(f1, rx);
+        ad.derivative(accel, ry, 2).unwrap()
+    };
+
+    let rel_err_log = ((log_d2 - analytical) / analytical).abs();
+    println!(
+        "d²a_x/dry² at (5000,3000,1000) km: std={:.4e}, log={:.4e}, analytical={:.4e}",
+        std_d2, log_d2, analytical
+    );
+    println!("Standard rel_err=100% (overflow to 0.0), powf_log rel_err={:.3e}", rel_err_log);
+
+    // Standard path overflows f32 → 0.0 (100% error).
+    assert_eq!(
+        std_d2, 0.0_f32,
+        "expected standard div path to overflow to 0.0 in f32 at orbital radius ~5916 km \
+         (r3^4 ≈ 1.84e45 > f32 max 3.4e38); got {std_d2}"
+    );
+
+    // powf_log path is accurate to within 0.1%.
+    assert!(
+        rel_err_log < 1e-3,
+        "powf_log relative error too large: {:.3e}",
+        rel_err_log
+    );
+}
+
+// ============================================================================
 // Mixed partial oracle: d²f/dxdy against closed-form values
 // ============================================================================
 

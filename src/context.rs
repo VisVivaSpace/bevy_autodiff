@@ -803,7 +803,7 @@ impl<F: Float> AutoDiff<F> {
                         return self.constant(F::zero());
                     }
                     let one = self.one();
-                    let b_minus_1 = self.sub(b, one);
+                    let b_minus_1 = self.smart_sub(b, one);
                     let a_pow = self.pow(a, b_minus_1);
                     let b_times = self.smart_mul(b, a_pow);
                     self.smart_mul(b_times, da)
