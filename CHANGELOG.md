@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-03-01
+
+### Fixed
+
+- **`smart_sub` bug in power-rule differentiation** ([#issue](https://github.com/VisVivaSpace/bevy_autodiff)): `differentiate()` was calling `self.sub(b, one)` instead of `self.smart_sub(b, one)` when applying the power rule. The resulting `Sub(constant(n), constant(1))` node evaluated correctly at runtime but was not marked `IsConstant`, so constant-folding shortcuts never fired on subsequent differentiations. Over-differentiating a polynomial (e.g., computing d⁴[x³]/dx⁴) eventually constructed a `Pow(x, −1)` sub-expression; evaluated at x = 0 this produced NaN instead of the correct value 0. After the fix, `smart_sub` folds `constant(n) − constant(1)` to a proper `constant(n−1)`, keeping all downstream constant checks correct.
+
 ## [0.8.0] - 2026-02-17
 
 ### Added
