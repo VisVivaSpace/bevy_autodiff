@@ -280,3 +280,137 @@ fn compare_powf() {
         assert_relative_eq!(bevy_deriv, autodiff_deriv, epsilon = 1e-9);
     }
 }
+
+#[test]
+fn compare_powi() {
+    // d/dx(x^3) = 3x²; oracle: x*x*x
+    for &x_val in &[0.5, 1.0, 2.0, -1.0, 3.0] {
+        compare_unary(x_val, |ad, x| ad.powi(x, 3), |x| x * x * x);
+    }
+}
+
+// ============================================================================
+// Binary pow: d/dx[x^y] and d/dy[x^y] against closed-form values
+// ============================================================================
+
+#[test]
+fn compare_pow_binary_dfdx() {
+    // d/dx[x^y] = y * x^(y-1)
+    for &(x, y) in &[(2.0_f64, 3.0_f64), (0.5, 2.0), (3.0, 0.5), (1.5, 2.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.pow(xv, yv);
+        let dfdx_var = ad.differentiate(f, xv).unwrap();
+        let got = ad.eval(dfdx_var).unwrap();
+        let expected = y * x.powf(y - 1.0);
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_pow_binary_dfdy() {
+    // d/dy[x^y] = x^y * ln(x)
+    for &(x, y) in &[(2.0_f64, 3.0_f64), (0.5, 2.0), (3.0, 0.5), (1.5, 2.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.pow(xv, yv);
+        let dfdy_var = ad.differentiate(f, yv).unwrap();
+        let got = ad.eval(dfdy_var).unwrap();
+        let expected = x.powf(y) * x.ln();
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+// ============================================================================
+// Logarithmic derivative variants: first-order oracle vs closed-form
+// ============================================================================
+
+#[test]
+fn compare_pow_log_dfdx() {
+    // d/dx[pow_log(x,y)] = y * x^(y-1) — same first derivative as pow
+    for &(x, y) in &[(2.0_f64, 3.0_f64), (0.5, 2.0), (3.0, 0.5), (1.5, 2.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.pow_log(xv, yv);
+        let dfdx_var = ad.differentiate(f, xv).unwrap();
+        let got = ad.eval(dfdx_var).unwrap();
+        let expected = y * x.powf(y - 1.0);
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_pow_log_dfdy() {
+    // d/dy[pow_log(x,y)] = x^y * ln(x) — same first derivative as pow
+    for &(x, y) in &[(2.0_f64, 3.0_f64), (0.5, 2.0), (3.0, 0.5), (1.5, 2.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.pow_log(xv, yv);
+        let dfdy_var = ad.differentiate(f, yv).unwrap();
+        let got = ad.eval(dfdy_var).unwrap();
+        let expected = x.powf(y) * x.ln();
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_powi_log_first_order() {
+    // d/dx[powi_log(x,3)] = 3x² — same first derivative as powi
+    for &x in &[0.5, 1.0, 2.0, 3.0] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let f = ad.powi_log(xv, 3);
+        let df_var = ad.differentiate(f, xv).unwrap();
+        let got = ad.eval(df_var).unwrap();
+        let expected = 3.0 * x.powf(2.0);
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_powf_log_first_order() {
+    // d/dx[powf_log(x,2.5)] = 2.5 * x^1.5 — same first derivative as powf
+    for &x in &[0.5, 1.0, 2.0, 4.0] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let f = ad.powf_log(xv, 2.5);
+        let df_var = ad.differentiate(f, xv).unwrap();
+        let got = ad.eval(df_var).unwrap();
+        let expected = 2.5 * x.powf(1.5);
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_div_log_dfdx() {
+    // d/dx[div_log(x,y)] = 1/y — same first derivative as div
+    for &(x, y) in &[(1.0_f64, 2.0_f64), (3.0, 4.0), (0.5, 1.5), (2.0, 0.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.div_log(xv, yv);
+        let df_var = ad.differentiate(f, xv).unwrap();
+        let got = ad.eval(df_var).unwrap();
+        let expected = 1.0 / y;
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}
+
+#[test]
+fn compare_div_log_dfdy() {
+    // d/dy[div_log(x,y)] = -x/y² — same first derivative as div
+    for &(x, y) in &[(1.0_f64, 2.0_f64), (3.0, 4.0), (0.5, 1.5), (2.0, 0.5)] {
+        let mut ad = AutoDiff::new();
+        let xv = ad.var(x).unwrap();
+        let yv = ad.var(y).unwrap();
+        let f = ad.div_log(xv, yv);
+        let df_var = ad.differentiate(f, yv).unwrap();
+        let got = ad.eval(df_var).unwrap();
+        let expected = -x / (y * y);
+        assert_relative_eq!(got, expected, epsilon = 1e-10);
+    }
+}

@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo bench
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use bevy_autodiff::{AutoDiff, Var};
 
@@ -231,6 +231,141 @@ fn bench_twobody_forward_hessian(c: &mut Criterion) {
     });
 }
 
+// ============================================================================
+// Scaling: compile_order cost vs derivative order
+// ============================================================================
+
+/// Measures how compilation cost grows with derivative order on Rosenbrock.
+/// Healthy growth is roughly exponential in order (graph size doubles each
+/// level). Super-exponential growth would hint at a constant-folding bug.
+fn bench_compile_order_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compile_order_scaling");
+    for order in [1usize, 2, 3, 4] {
+        group.bench_with_input(
+            BenchmarkId::new("rosenbrock_order", order),
+            &order,
+            |b, &order| {
+                b.iter(|| {
+                    let mut ad = AutoDiff::new();
+                    let (x, y, f) = build_rosenbrock(&mut ad);
+                    let _ = ad.compile_order(f, &[x, y], order).unwrap();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ============================================================================
+// Scaling: compile time vs expression depth
+// ============================================================================
+
+/// Measures how compile time scales with depth of a sin-chain f = sin(sin(…sin(x)…)).
+/// Linear growth = O(n) topological sort. Quadratic = bug in topo sort.
+fn bench_graph_depth_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_depth_scaling");
+    for depth in [5usize, 10, 20, 40] {
+        group.bench_with_input(
+            BenchmarkId::new("sin_chain_compile", depth),
+            &depth,
+            |b, &depth| {
+                b.iter(|| {
+                    let mut ad = AutoDiff::new();
+                    let x = ad.var(1.0).unwrap();
+                    let mut v = x;
+                    for _ in 0..depth {
+                        v = ad.sin(v);
+                    }
+                    let _ = ad.compile_order(v, &[x], 1).unwrap();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ============================================================================
+// Scaling: reverse vs forward gradient as input count grows
+// ============================================================================
+
+/// Compares reverse-mode and forward-mode gradient cost as the number of
+/// inputs grows (f = Σ sin(xᵢ)).
+///
+/// Reverse-mode: O(nodes) regardless of input count — gradient() one call.
+/// Forward-mode: O(n·nodes) — compile_order computes n symbolic partials.
+///
+/// Only the eval + extraction phase is timed (compilation amortized out).
+fn bench_gradient_vs_inputs(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gradient_input_scaling");
+    for n in [1usize, 2, 4, 8, 16] {
+        // --- reverse mode ---
+        group.bench_with_input(
+            BenchmarkId::new("reverse", n),
+            &n,
+            |b, &n| {
+                let mut ad = AutoDiff::new();
+                let inputs: Vec<Var> = (0..n).map(|_| ad.var(1.0).unwrap()).collect();
+                let sins: Vec<Var> = inputs.iter().map(|&xi| ad.sin(xi)).collect();
+                let f = sins[1..].iter().fold(sins[0], |acc, &s| ad.add(acc, s));
+                let mut cg = ad.compile_primal(f, &inputs).unwrap();
+                let vals: Vec<f64> = vec![1.0; n];
+                b.iter(|| {
+                    cg.eval(&vals).unwrap();
+                    let _ = cg.gradient();
+                });
+            },
+        );
+        // --- forward mode ---
+        group.bench_with_input(
+            BenchmarkId::new("forward", n),
+            &n,
+            |b, &n| {
+                let mut ad = AutoDiff::new();
+                let inputs: Vec<Var> = (0..n).map(|_| ad.var(1.0).unwrap()).collect();
+                let sins: Vec<Var> = inputs.iter().map(|&xi| ad.sin(xi)).collect();
+                let f = sins[1..].iter().fold(sins[0], |acc, &s| ad.add(acc, s));
+                let mut cg = ad.compile_order(f, &inputs, 1).unwrap();
+                let vals: Vec<f64> = vec![1.0; n];
+                b.iter(|| {
+                    cg.eval(&vals).unwrap();
+                    for i in 0..n {
+                        let mut idx = vec![0usize; n];
+                        idx[i] = 1;
+                        let _ = cg.partial(&idx).unwrap();
+                    }
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ============================================================================
+// Constant folding: d^k[constant]/dx^k should be O(1) in k
+// ============================================================================
+
+/// Differentiates a constant node to arbitrary order.
+/// Constant folding should collapse each derivative to zero immediately,
+/// so cost should be O(1) regardless of order.
+fn bench_constant_folding(c: &mut Criterion) {
+    let mut group = c.benchmark_group("constant_folding");
+    for order in [1usize, 2, 4, 8] {
+        group.bench_with_input(
+            BenchmarkId::new("d_const_dx", order),
+            &order,
+            |b, &order| {
+                b.iter(|| {
+                    let mut ad = AutoDiff::new();
+                    let x = ad.var(1.0).unwrap();
+                    let c = ad.constant(42.0);
+                    let _ = ad.derivative(c, x, order).unwrap();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_ecs_eval,
@@ -242,5 +377,9 @@ criterion_group!(
     bench_reverse_gradient,
     bench_twobody_reverse_gradient,
     bench_twobody_forward_hessian,
+    bench_compile_order_scaling,
+    bench_graph_depth_scaling,
+    bench_gradient_vs_inputs,
+    bench_constant_folding,
 );
 criterion_main!(benches);
