@@ -1,6 +1,6 @@
 [package]
 name = "bevy_autodiff"
-version = "0.8.1"
+version = "0.10.0-dev"
 edition = "2024"
 rust-version = "1.92"
 authors = ["Nathan Strange <info@visviva.space>"]
@@ -15,8 +15,8 @@ categories = ["science", "mathematics"]
 exclude = ["CLAUDE.md", ".claude/", "tasks/", "notes/"]
 
 [dependencies]
-bevy_ecs = "0.18"
-bevy_entity_ptr = "0.5"
+bevy_ecs = { git = "https://github.com/cart/bevy.git", branch = "next-generation-scenes" }
+bevy_entity_ptr = { git = "https://github.com/VisVivaSpace/bevy_entity_ptr.git", branch = "bevy-0.19-dev" }
 thiserror = "2"
 bevy_autodiff-macros = { version = "0.2.1", path = "./bevy_autodiff-macros", optional = true }
 wgpu = { version = "28", optional = true }
